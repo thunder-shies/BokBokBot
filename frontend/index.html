@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Mean AI - 諷刺社交媒體兩極化現象的高傲審判官" />
+    <title>Mean AI | 數字審判官</title>
+
+    <!-- 字體預加載 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Courier+Prime:wght@400;700&display=swap"
+        rel="stylesheet" />
+
+    <style>
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg,
+                    rgba(0, 217, 255, 0.05) 0%,
+                    rgba(255, 0, 255, 0.05) 50%,
+                    rgba(0, 217, 255, 0.05) 100%);
+            pointer-events: none;
+            z-index: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+</body>
+
+</html>
