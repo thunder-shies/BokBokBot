@@ -3,6 +3,7 @@ import { ChatInterface } from './ChatInterface';
 import WebcamPreview from './WebcamPreview';
 import StatusLabels from './StatusLabels';
 import VisualBackground from './VisualBackground';
+import { analyzeUserInput } from '../utils/api';
 import '../styles/globals.css';
 
 interface Message {
@@ -67,18 +68,7 @@ const App: FC = () => {
     setIsLoading(true);
 
     try {
-      // 調用後端 API
-      const response = await fetch('http://localhost:8000/api/chat/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ userInput: message }),
-      });
-
-      if (!response.ok) throw new Error('Failed to get AI response');
-
-      const data = await response.json();
+      const data = await analyzeUserInput(message);
       const tags = data.tags || [];
       const intensity = calculateIntensity(message, tags);
       const nextMetrics = getMetricFromTags(tags);
@@ -92,7 +82,7 @@ const App: FC = () => {
         timestamp: Date.now(),
       };
 
-      setConversationHistory([...conversationHistory, newTurn]);
+      setConversationHistory((prev) => [...prev, newTurn]);
       setCurrentIntensity(intensity);
       setMetrics(nextMetrics);
     } catch (error) {
@@ -106,7 +96,7 @@ const App: FC = () => {
         intensity: Math.random() * 100,
         timestamp: Date.now(),
       };
-      setConversationHistory([...conversationHistory, mockTurn]);
+      setConversationHistory((prev) => [...prev, mockTurn]);
       setMetrics(getMetricFromTags(mockTurn.tags));
       setCurrentIntensity(mockTurn.intensity);
     } finally {

@@ -20,7 +20,7 @@ class Config:
 
     # TTS 配置
     TTS_PROVIDER = os.getenv("TTS_PROVIDER", "edge-tts")
-    TTS_VOICE = os.getenv("TTS_VOICE", "zh-HK-YurisNeural")
+    TTS_VOICE = os.getenv("TTS_VOICE", "zh-HK-WanLungNeural")
 
     # 對話配置
     MAX_CONVERSATION_LENGTH = int(os.getenv("MAX_CONVERSATION_LENGTH", "10"))

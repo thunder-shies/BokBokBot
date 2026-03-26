@@ -1,6 +1,33 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Terminal } from 'lucide-react';
+import { Mic, MicOff, Send, Terminal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { generateSpeech } from '../utils/api';
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+interface SpeechRecognitionEvent {
+  results: {
+    [key: number]: {
+      [key: number]: {
+        transcript: string;
+      };
+    };
+    length: number;
+  };
+}
+
+interface SpeechRecognitionConstructor {
+  new (): SpeechRecognitionLike;
+}
 
 interface Message {
   role: 'user' | 'ai';
@@ -15,7 +42,24 @@ interface ChatInterfaceProps {
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, messages, isTyping }) => {
   const [input, setInput] = useState('');
+  const [isListening, setIsListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const lastSpokenMessageRef = useRef<string>('');
+
+  const SpeechRecognitionImpl = (
+    window as Window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    }
+  ).SpeechRecognition || (
+    window as Window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    }
+  ).webkitSpeechRecognition;
+  const isSpeechRecognitionSupported = Boolean(SpeechRecognitionImpl);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -23,11 +67,115 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     }
   }, [messages, isTyping]);
 
+  useEffect(() => {
+    const RecognitionCtor = SpeechRecognitionImpl;
+    if (!RecognitionCtor || !isSpeechRecognitionSupported) return;
+
+    const recognition = new RecognitionCtor();
+    recognition.lang = 'zh-HK';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript?.trim() || '';
+      if (transcript) {
+        setInput(transcript);
+      }
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+
+    return () => {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+    };
+  }, [SpeechRecognitionImpl, isSpeechRecognitionSupported]);
+
+  useEffect(() => {
+    const playLatestAiSpeech = async () => {
+      if (isTyping || messages.length === 0) return;
+
+      const latestMessage = messages[messages.length - 1];
+      if (latestMessage.role !== 'ai') return;
+      if (latestMessage.text === lastSpokenMessageRef.current) return;
+
+      try {
+        const audioBlob = await generateSpeech(latestMessage.text);
+        const nextUrl = URL.createObjectURL(audioBlob);
+
+        if (!audioRef.current) {
+          audioRef.current = new Audio();
+        }
+
+        const audio = audioRef.current;
+        if (audio.src.startsWith('blob:')) {
+          URL.revokeObjectURL(audio.src);
+        }
+
+        audio.pause();
+        audio.src = nextUrl;
+        await audio.play();
+        lastSpokenMessageRef.current = latestMessage.text;
+      } catch (error) {
+        console.error('TTS playback failed:', error);
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(latestMessage.text);
+          utterance.lang = 'zh-HK';
+          utterance.rate = 1;
+          utterance.pitch = 1;
+          utterance.volume = 1;
+          window.speechSynthesis.speak(utterance);
+          lastSpokenMessageRef.current = latestMessage.text;
+        }
+      }
+    };
+
+    playLatestAiSpeech();
+  }, [messages, isTyping]);
+
+  useEffect(() => {
+    return () => {
+      const audio = audioRef.current;
+      if (!audio) return;
+
+      audio.pause();
+      if (audio.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audio.src);
+      }
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      audioRef.current = null;
+    };
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
     onSendMessage(input);
     setInput('');
+  };
+
+  const handleToggleListening = () => {
+    if (!recognitionRef.current) return;
+
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+
+    setIsListening(true);
+    recognitionRef.current.start();
   };
 
   return (
@@ -111,8 +259,23 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Input your pathetic thoughts..."
-            className="w-full bg-transparent border-b border-white/20 py-2 pr-10 text-xs focus:outline-none focus:border-white transition-colors placeholder:text-white/20"
+            className="w-full bg-transparent border-b border-white/20 py-2 pr-20 text-xs focus:outline-none focus:border-white transition-colors placeholder:text-white/20"
           />
+          <button
+            type="button"
+            onClick={handleToggleListening}
+            disabled={!isSpeechRecognitionSupported}
+            className="absolute right-8 p-2 text-white/40 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            title={
+              isSpeechRecognitionSupported
+                ? isListening
+                  ? 'Stop voice input'
+                  : 'Start voice input'
+                : 'Voice input not supported in this browser'
+            }
+          >
+            {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+          </button>
           <button 
             type="submit"
             className="absolute right-0 p-2 text-white/40 hover:text-white transition-colors"
@@ -120,6 +283,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
             <Send size={16} />
           </button>
         </div>
+        {!isSpeechRecognitionSupported && (
+          <p className="mt-2 text-[10px] uppercase tracking-widest text-white/30">
+            Voice input unavailable in this browser.
+          </p>
+        )}
       </form>
     </div>
   );
