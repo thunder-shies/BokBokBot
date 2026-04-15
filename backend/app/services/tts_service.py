@@ -3,7 +3,6 @@ TTS 服務 - Microsoft Edge TTS 整合
 """
 
 import edge_tts
-import io
 import re
 from config import config
 
@@ -15,6 +14,37 @@ class TTSService:
         self.voice = config.TTS_VOICE  # 粵語語音
         self.rate = "+30%"  # 語速
         self.volume = "+0%"  # 音量
+
+    def _voice_candidates(self) -> list[str]:
+        """Return the configured voice first, then known Cantonese fallbacks."""
+        candidates = [self.voice]
+        for voice in [
+            "zh-HK-WanLungNeural",
+            "zh-HK-HiuMaanNeural",
+            "zh-HK-HiuGaaiNeural",
+            "zh-HK-ZunNingNeural",
+        ]:
+            if voice not in candidates:
+                candidates.append(voice)
+        return candidates
+
+    async def _synthesize_with_voice(self, text: str, voice: str) -> bytes:
+        communicate = edge_tts.Communicate(
+            text=text,
+            voice=voice,
+            rate=self.rate,
+            volume=self.volume,
+        )
+
+        audio_data = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+
+        if not audio_data:
+            raise ValueError(f"語音 {voice} 未返回任何音頻")
+
+        return audio_data
 
     def _sanitize_text_for_tts(self, text: str) -> str:
         """移除 emoji，避免 TTS 朗讀符號或導致合成不穩定"""
@@ -56,20 +86,16 @@ class TTSService:
             if not clean_text:
                 clean_text = "嗯"
 
-            communicate = edge_tts.Communicate(
-                text=clean_text,
-                voice=self.voice,
-                rate=self.rate,
-                volume=self.volume,
-            )
+            last_error = None
+            for voice in self._voice_candidates():
+                try:
+                    return await self._synthesize_with_voice(clean_text, voice)
+                except Exception as error:
+                    last_error = error
 
-            # 收集音頻數據
-            audio_data = b""
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_data += chunk["data"]
-
-            return audio_data
+            if last_error:
+                raise last_error
+            raise ValueError("TTS 無法找到可用語音")
 
         except Exception as e:
             print(f"❌ TTS 錯誤: {str(e)}")

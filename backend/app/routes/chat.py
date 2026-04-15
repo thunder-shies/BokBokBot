@@ -43,7 +43,9 @@ async def analyze_user_input(payload: AnalyzeRequest):
         confidence = 0.9
         try:
             ai_text = await llm_service.generate_response(user_input)
-            tags = await llm_service.analyze_tags(user_input, ai_text)
+            tags = llm_service.extract_tags_from_response(ai_text)
+            if len(tags) < 3:
+                tags = await llm_service.analyze_tags(user_input, ai_text)
             intensity = float(analysis_service.calculate_intensity(user_input, tags))
         except Exception:
             ai_text, tags, intensity = _fallback_response(user_input)

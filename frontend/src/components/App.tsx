@@ -4,7 +4,6 @@ import WebcamPreview from './WebcamPreview';
 import StatusLabels from './StatusLabels';
 import VisualBackground from './VisualBackground';
 import { analyzeUserInput } from '../utils/api';
-import '../styles/globals.css';
 
 interface Message {
   role: 'user' | 'ai';
@@ -17,6 +16,7 @@ interface ConversationTurn {
   aiResponse: string;
   tags: string[];
   intensity: number;
+  confidence?: number;
   timestamp: number;
 }
 
@@ -30,6 +30,7 @@ const App: FC = () => {
   const [conversationHistory, setConversationHistory] = useState<ConversationTurn[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentIntensity, setCurrentIntensity] = useState(0);
+  const [currentConfidence, setCurrentConfidence] = useState<number | null>(null);
   const [metrics, setMetrics] = useState<MetricsState>({
     stupidity: 0.1,
     conformity: 0.1,
@@ -70,7 +71,9 @@ const App: FC = () => {
     try {
       const data = await analyzeUserInput(message);
       const tags = data.tags || [];
-      const intensity = calculateIntensity(message, tags);
+      const intensity = typeof data.intensity === 'number'
+        ? data.intensity
+        : calculateIntensity(message, tags);
       const nextMetrics = getMetricFromTags(tags);
 
       const newTurn: ConversationTurn = {
@@ -79,11 +82,13 @@ const App: FC = () => {
         aiResponse: data.response,
         tags,
         intensity,
+        confidence: typeof data.confidence === 'number' ? data.confidence : undefined,
         timestamp: Date.now(),
       };
 
       setConversationHistory((prev) => [...prev, newTurn]);
       setCurrentIntensity(intensity);
+      setCurrentConfidence(newTurn.confidence ?? null);
       setMetrics(nextMetrics);
     } catch (error) {
       console.error('Error:', error);
@@ -99,6 +104,7 @@ const App: FC = () => {
       setConversationHistory((prev) => [...prev, mockTurn]);
       setMetrics(getMetricFromTags(mockTurn.tags));
       setCurrentIntensity(mockTurn.intensity);
+      setCurrentConfidence(null);
     } finally {
       setIsLoading(false);
     }
@@ -152,6 +158,8 @@ const App: FC = () => {
         </div>
         <div className="text-[10px] uppercase tracking-widest text-white/40">
           Intensity: {currentIntensity.toFixed(0)}%
+          {' · '}
+          Confidence: {currentConfidence === null ? 'LOCAL_MOCK' : `${Math.round(currentConfidence * 100)}%`}
         </div>
       </header>
 

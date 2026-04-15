@@ -178,6 +178,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     recognitionRef.current.start();
   };
 
+  const handleStopTts = () => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  };
+
   return (
     <div className="flex flex-col h-full border border-white/10 bg-black/40 backdrop-blur-sm">
       <div className="p-3 border-b border-white/10 flex items-center gap-2 bg-white/5">
@@ -203,7 +215,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
                   : 'bg-white/5 border border-white/10 text-white'
               }`}>
                 {msg.role === 'ai' && (
-                  <div className="text-[9px] uppercase tracking-widest text-white/40 mb-1">Mean_AI // Response</div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="text-[9px] uppercase tracking-widest text-white/40">BokBok Bot // Response</div>
+                    <button
+                      type="button"
+                      onClick={handleStopTts}
+                      className="inline-flex items-center gap-1 border border-white/20 px-2 py-1 text-[10px] uppercase tracking-widest text-white/60 hover:border-white/40 hover:text-white transition-colors"
+                      title="Stop TTS"
+                    >
+                      Stop
+                    </button>
+                  </div>
                 )}
                 {msg.text}
               </div>

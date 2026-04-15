@@ -17,6 +17,7 @@ from config import config
 
 # 路由導入
 from app.routes import chat
+from app.routes import vision
 
 
 # 生命週期事件
@@ -24,7 +25,10 @@ from app.routes import chat
 async def lifespan(app: FastAPI):
     # 啟動事件
     print("🚀 Mean AI Backend 啟動中...")
-    print(f"📍 LLM 後端: {config.LLM_BASE_URL}")
+    if config.LLM_PROVIDER == "huggingface":
+        print(f"📍 LLM 提供者: huggingface ({config.HF_PROVIDER})")
+    else:
+        print(f"📍 LLM 後端: ollama @ {config.LLM_BASE_URL}")
     print(f"🔊 TTS 提供者: {config.TTS_PROVIDER}")
     yield
     # 關閉事件
@@ -73,6 +77,7 @@ async def root():
 
 # 路由集成
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+app.include_router(vision.router, prefix="/api/vision", tags=["Vision"])
 
 if __name__ == "__main__":
     import uvicorn

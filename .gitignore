@@ -10,6 +10,8 @@ db.sqlite3
 /env/
 /.env
 .env.local
+backend/.env
+**/.env
 
 # Node
 /frontend/node_modules/

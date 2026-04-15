@@ -8,15 +8,18 @@ load_dotenv()
 
 class Config:
     # FastAPI 配置
-    API_TITLE = "Mean AI Backend"
+    API_TITLE = "BokBok Bot Backend"
     API_VERSION = "0.1.0"
-    API_DESCRIPTION = "高傲的數字審判官 - 後端 API"
+    API_DESCRIPTION = "BokBok Bot - 後端 API"
 
     # LLM 配置
-    LLM_MODEL = os.getenv("LLM_MODEL", "llama3")
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "huggingface").lower()
+    LLM_MODEL = os.getenv("LLM_MODEL", "hon9kon9ize/CantoneseLLMChat-v1.0-7B")
     LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:11434")
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
+    HF_TOKEN = os.getenv("HF_TOKEN", "").strip()
+    HF_PROVIDER = os.getenv("HF_PROVIDER", "featherless-ai")
 
     # TTS 配置
     TTS_PROVIDER = os.getenv("TTS_PROVIDER", "edge-tts")

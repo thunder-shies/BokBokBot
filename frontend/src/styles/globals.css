@@ -14,7 +14,8 @@ html {
 }
 
 body {
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: "Noto Sans TC", "Noto Sans", system-ui, sans-serif;
+  font-weight: bold;
   background-color: #0a0a0a;
   color: #ffffff;
   overflow-x: hidden;

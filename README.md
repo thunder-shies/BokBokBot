@@ -21,7 +21,7 @@
 ### Backend
 
 - **框架**: FastAPI (Python 3.9+)
-- **LLM**: Llama 3 (通过 Ollama)
+- **LLM**: 可選 Ollama 或 Hugging Face Inference Providers
 - **TTS**: Microsoft Edge TTS (粵語)
 - **數據驗證**： Pydantic
 - **ASGI 服務器**： Uvicorn
@@ -55,7 +55,9 @@ git clone <repository-url>
 cd 駁駁Bot
 ```
 
-### 2️⃣ 安裝 Ollama（外部工具）
+### 2️⃣ 準備 LLM 提供者（2 選 1）
+
+#### 選項 A：Ollama（本地）
 
 **所有平台**：
 下載並安裝 [Ollama](https://ollama.ai)
@@ -70,6 +72,18 @@ ollama pull llama3
 
 ```bash
 curl http://localhost:11434/api/tags
+```
+
+#### 選項 B：Hugging Face Inference Providers（雲端）
+
+1. 到 Hugging Face 建立 Access Token（需要 Inference 權限）
+2. 在 `backend/.env` 設定：
+
+```env
+LLM_PROVIDER=huggingface
+HF_TOKEN=your_hf_token
+HF_PROVIDER=auto
+LLM_MODEL=meta-llama/Llama-3.1-8B-Instruct
 ```
 
 ### 3️⃣ 後端設置
@@ -90,7 +104,7 @@ pip install -r requirements.txt
 # 創建 .env 文件（或複製 .env.example）
 cp .env.example .env  # 如果存在 .env.example
 
-# 啟動後端服務器（確保 Ollama 正在運行）
+# 啟動後端服務器（如用 Ollama，請先啟動 Ollama）
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
@@ -135,10 +149,15 @@ npm run dev
 
 ```env
 # LLM 配置
+LLM_PROVIDER=ollama
 LLM_MODEL=llama3
 LLM_BASE_URL=http://localhost:11434
 LLM_TEMPERATURE=0.7
 LLM_MAX_TOKENS=512
+
+# Hugging Face Inference Providers（當 LLM_PROVIDER=huggingface 時使用）
+HF_TOKEN=
+HF_PROVIDER=auto
 
 # TTS 配置
 TTS_PROVIDER=edge-tts
@@ -157,7 +176,10 @@ DATABASE_URL=sqlite:///./mean_ai.db
 
 **說明**:
 
-- `LLM_BASE_URL`: Ollama 服務的 URL（通常是 `http://localhost:11434`）
+- `LLM_PROVIDER`: `ollama` 或 `huggingface`
+- `LLM_BASE_URL`: 只在 `LLM_PROVIDER=ollama` 時使用
+- `HF_TOKEN`: 只在 `LLM_PROVIDER=huggingface` 時使用
+- `HF_PROVIDER`: Hugging Face Inference Providers 的路由提供者（可用 `auto`）
 - `TTS_VOICE`: 粵語語音（支持：`zh-HK-YurisNeural`, `zh-HK-WanRubyNeural` 等）
 - `CORS_ORIGINS`: 允許的前端域名（多個用逗號分隔）
 
