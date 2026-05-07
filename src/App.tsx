@@ -3,6 +3,7 @@ import { VisualBackground } from './components/VisualBackground';
 import { WebcamPreview } from './components/WebcamPreview';
 import { ChatInterface } from './components/ChatInterface';
 import { StatusLabels } from './components/StatusLabels';
+import { useProjectionWindow } from './hooks/useProjectionWindow';
 import { getMeanResponse } from './services/chatApi';
 import { Eye, Activity, ShieldAlert, Cpu } from 'lucide-react';
 
@@ -17,6 +18,7 @@ export default function App() {
   const [metrics, setMetrics] = useState({ stupidity: 0.1, conformity: 0.1, polarization: 0.1 });
   const [labels, setLabels] = useState<string[]>([]);
   const [intensity, setIntensity] = useState(0.1);
+  const { broadcastCaption } = useProjectionWindow();
 
   const handleSendMessage = async (text: string) => {
     setMessages(prev => [...prev, { role: 'user', text }]);
@@ -85,7 +87,8 @@ export default function App() {
           <ChatInterface 
             messages={messages} 
             onSendMessage={handleSendMessage} 
-            isTyping={isTyping} 
+            isTyping={isTyping}
+            broadcastCaption={broadcastCaption}
           />
         </div>
       </main>

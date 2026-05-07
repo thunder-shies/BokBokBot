@@ -11,6 +11,7 @@ interface ChatInterfaceProps {
   onSendMessage: (msg: string) => void;
   messages: Message[];
   isTyping: boolean;
+  broadcastCaption?: (text: string, role: 'user' | 'ai') => void;
 }
 
 interface SpeechRecognitionAlternativeLike {
@@ -48,7 +49,7 @@ declare global {
 
 const MAX_INPUT_LENGTH = 100;
 
-export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, messages, isTyping }) => {
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, messages, isTyping, broadcastCaption }) => {
   const [input, setInput] = useState('');
   const [currentCC, setCurrentCC] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
@@ -127,6 +128,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     const lastMessage = messages[messages.length - 1];
     if (lastMessage) {
       setCurrentCC(lastMessage.text);
+      // Broadcast caption to projection window
+      if (broadcastCaption) {
+        broadcastCaption(lastMessage.text, lastMessage.role);
+      }
       if (ccClearTimerRef.current !== null) {
         window.clearTimeout(ccClearTimerRef.current);
         ccClearTimerRef.current = null;
@@ -134,7 +139,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     } else {
       setCurrentCC(null);
     }
-  }, [messages]);
+  }, [messages, broadcastCaption]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -245,7 +250,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       <div className="absolute inset-0 z-0">
         <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/40 z-10" />
         <img 
-          src="ComfyUI_00011_ crop.png" 
+          src="src/assets/images/ChatGPT Image 2026-5-8 01_58_57__edited.png" 
           alt="Robot Staring"
           referrerPolicy="no-referrer"
           className="w-full h-full object-cover brightness-75 contrast-110"
