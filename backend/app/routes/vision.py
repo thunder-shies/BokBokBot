@@ -1,30 +1,18 @@
-"""Vision routes for webcam presence detection."""
-
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from app.models.schemas import PersonDetectionResponse
 from app.services.vision_service import vision_service
-
 
 router = APIRouter()
 
 
-@router.post("/detect-person")
-async def detect_person(frame: UploadFile = File(...)):
-    """Detect if at least one person appears in the uploaded image frame."""
-    try:
-        if not frame.content_type or not frame.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="請上傳圖片格式 frame")
+@router.post("/detect-person", response_model=PersonDetectionResponse)
+async def detect_person(file: UploadFile = File(...)) -> PersonDetectionResponse:
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image uploads are supported")
 
-        image_bytes = await frame.read()
-        result = vision_service.detect_people(image_bytes)
-        return {
-            "detected": result.detected,
-            "count": result.count,
-            "confidence": result.confidence,
-        }
-    except HTTPException:
-        raise
-    except Exception as error:
-        raise HTTPException(
-            status_code=500, detail=f"影像偵測失敗: {str(error)}"
-        ) from error
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    return vision_service.detect_people(image_bytes)

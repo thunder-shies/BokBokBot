@@ -1,61 +1,51 @@
-"""Vision service: detect people in webcam frames with OpenCV HOG."""
-
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 import cv2
 import numpy as np
 
-
-@dataclass
-class PersonDetectionResult:
-    detected: bool
-    count: int
-    confidence: float
+from config import settings
+from app.models.schemas import PersonDetectionResponse
 
 
 class VisionService:
-    """Provides lightweight person detection for UI presence checks."""
-
     def __init__(self) -> None:
-        self._hog = cv2.HOGDescriptor()
-        self._hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+        self.hog = cv2.HOGDescriptor()
+        self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+        self.threshold = settings.vision_confidence_threshold
 
-    def detect_people(self, image_bytes: bytes) -> PersonDetectionResult:
-        if not image_bytes:
-            return PersonDetectionResult(detected=False, count=0, confidence=0.0)
-
-        frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    def detect_people(self, image_bytes: bytes) -> PersonDetectionResponse:
+        frame = self._decode_frame(image_bytes)
         if frame is None:
-            return PersonDetectionResult(detected=False, count=0, confidence=0.0)
+            return PersonDetectionResponse(detected=False, count=0, confidence=0.0)
 
-        # Resize keeps inference cost low for frequent polling from frontend.
-        height, width = frame.shape[:2]
-        max_width = 640
-        if width > max_width:
-            ratio = max_width / float(width)
-            frame = cv2.resize(frame, (max_width, int(height * ratio)))
-
-        rects, weights = self._hog.detectMultiScale(
+        frame = self._resize_frame(frame)
+        boxes, weights = self.hog.detectMultiScale(
             frame,
             winStride=(8, 8),
             padding=(8, 8),
             scale=1.05,
         )
 
-        valid_weights = [float(w) for w in (weights.flatten() if len(weights) else [])]
-        confidence = max(valid_weights) if valid_weights else 0.0
-        count = len(rects)
+        confidences = [float(weight) for weight in weights if float(weight) >= self.threshold]
+        count = len(confidences)
 
-        # Require a modest confidence floor to reduce false positives.
-        detected = count > 0 and confidence >= 0.45
-
-        return PersonDetectionResult(
-            detected=detected,
+        return PersonDetectionResponse(
+            detected=count > 0,
             count=count,
-            confidence=round(confidence, 3),
+            confidence=max(confidences) if confidences else 0.0,
         )
+
+    def _decode_frame(self, image_bytes: bytes) -> np.ndarray | None:
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    def _resize_frame(self, frame: np.ndarray) -> np.ndarray:
+        h, w = frame.shape[:2]
+        if w <= 640:
+            return frame
+        ratio = 640 / float(w)
+        new_size = (640, int(h * ratio))
+        return cv2.resize(frame, new_size, interpolation=cv2.INTER_AREA)
 
 
 vision_service = VisionService()

@@ -1,41 +1,28 @@
-# 後端配置示範
-
 import os
+from dataclasses import dataclass
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 
-class Config:
-    # FastAPI 配置
-    API_TITLE = "BokBok Bot Backend"
-    API_VERSION = "0.1.0"
-    API_DESCRIPTION = "BokBok Bot - 後端 API"
+@dataclass
+class Settings:
+    llm_provider: str = os.getenv("LLM_PROVIDER", "huggingface").strip().lower()
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    hf_token: str = os.getenv("HF_TOKEN", "")
+    hf_model: str = os.getenv("HF_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
+    hf_provider: str = os.getenv("HF_PROVIDER", "featherless-ai")
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.1")
+    cors_origins: str = os.getenv("CORS_ORIGINS", "*")
+    vision_confidence_threshold: float = float(os.getenv("VISION_CONFIDENCE_THRESHOLD", "0.45"))
 
-    # LLM 配置
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "huggingface").lower()
-    LLM_MODEL = os.getenv("LLM_MODEL", "hon9kon9ize/CantoneseLLMChat-v1.0-7B")
-    LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:11434")
-    LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
-    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
-    HF_TOKEN = os.getenv("HF_TOKEN", "").strip()
-    HF_PROVIDER = os.getenv("HF_PROVIDER", "featherless-ai")
-
-    # TTS 配置
-    TTS_PROVIDER = os.getenv("TTS_PROVIDER", "edge-tts")
-    TTS_VOICE = os.getenv("TTS_VOICE", "zh-HK-WanLungNeural")
-
-    # 對話配置
-    MAX_CONVERSATION_LENGTH = int(os.getenv("MAX_CONVERSATION_LENGTH", "10"))
-    RESPONSE_TIMEOUT = int(os.getenv("RESPONSE_TIMEOUT", "30"))
-
-    # CORS 配置
-    CORS_ORIGINS = os.getenv(
-        "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"
-    ).split(",")
-
-    # 數據庫（未來用）
-    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./mean_ai.db")
+    @property
+    def cors_origins_list(self) -> list[str]:
+        if self.cors_origins.strip() == "*":
+            return ["*"]
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
-config = Config()
+settings = Settings()

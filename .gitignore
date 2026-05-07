@@ -1,41 +1,8 @@
-# Git 配置
-
-*.pyc
-__pycache__/
-*.pot
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
 *.log
-local_settings.py
-db.sqlite3
-/venv/
-/env/
-/.env
-.env.local
-backend/.env
-**/.env
-
-# Node
-/frontend/node_modules/
-/frontend/.vite/
-/frontend/dist/
-/frontend/.env.local
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# 系统文件
-Thumbs.db
-.DS_Store
-
-# 模型文件（可选，如果太大可忽略）
-*.bin
-*.safetensors
-models/
-
-# 临时文件
-*.tmp
-*.cache
+.env*
+!.env.example

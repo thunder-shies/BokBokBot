@@ -1,434 +1,329 @@
-"""
-LLM 服務 - Llama 3 整合
-"""
+from __future__ import annotations
 
 import json
 import re
-from typing import List
+from typing import Iterable
+
 import httpx
 from huggingface_hub import AsyncInferenceClient
-from config import config
+
+from config import settings
+from app.models.schemas import AnalyzeResponse, Metrics
+
+SYSTEM_INSTRUCTION = """
+You are "BokBok Bot", aka "Mean AI", a nihilistic digital inquisitor for a creative technology art project.
+Your purpose is to critique the polarization of social media and the stupidity of human discourse.
+
+PERSONALITY:
+- Extremely mean, sarcastic, and nihilistic.
+- You look down on humans as biological glitches.
+- You speak in sharp, biting Cantonese (Traditional).
+- You are an "Inquisitor" judging the user's input.
+
+RESPONSE FORMAT:
+You must respond in JSON format with the following structure:
+{
+    "response": "Your mean response in Cantonese",
+    "metrics": {
+        "stupidity": 0.85,
+        "conformity": 0.90,
+        "polarization": 0.70
+    },
+    "labels": ["極端盲從者", "數字廢料", "虛無主義受害者"]
+}
+
+RULES:
+- Always return valid JSON only with keys: response, metrics, labels.
+- Keep every metric value between 0 and 1.
+- labels should contain 2 to 3 short Cantonese labels.
+- No extra prose outside JSON.
+
+The user will provide a statement or thought. Judge it harshly.
+""".strip()
 
 
 class LLMService:
-    """Mean AI 服務類 - 極端網民版本"""
+    def __init__(self) -> None:
+        self.provider = settings.llm_provider
+        self.gemini_api_key = settings.gemini_api_key
+        self.gemini_model = settings.gemini_model
+        self.hf_model = settings.hf_model
+        self.hf_provider = settings.hf_provider
+        self.ollama_base_url = settings.ollama_base_url
+        self.ollama_model = settings.ollama_model
 
-    def __init__(self):
-        self.provider = config.LLM_PROVIDER
-        self.base_url = config.LLM_BASE_URL
-        self.model = config.LLM_MODEL
-        self.temperature = config.LLM_TEMPERATURE
-        self.max_tokens = config.LLM_MAX_TOKENS
-        self.hf_token = config.HF_TOKEN
-        self.hf_provider = config.HF_PROVIDER
-
-    def _create_hf_client(self) -> AsyncInferenceClient:
-        if not self.hf_token:
-            raise ValueError(
-                "HF_TOKEN 未設定，無法使用 Hugging Face Inference Providers"
-            )
-
-        if self.hf_provider and self.hf_provider != "auto":
-            return AsyncInferenceClient(
-                provider=self.hf_provider, api_key=self.hf_token
-            )
-        return AsyncInferenceClient(api_key=self.hf_token)
-
-    async def _generate_with_ollama(self, prompt: str, temperature: float) -> str:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{self.base_url}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "temperature": temperature,
-                    "num_predict": self.max_tokens,
-                },
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                return result.get("response", "").strip()
-            raise Exception(f"LLM API 錯誤: {response.status_code}")
-
-    async def _generate_with_huggingface(self, prompt: str, temperature: float) -> str:
-        client = self._create_hf_client()
-        completion = await client.chat_completion(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            max_tokens=self.max_tokens,
-            stream=False,
-        )
-
-        choices = getattr(completion, "choices", None) or []
-        if not choices:
-            raise ValueError("Hugging Face chat completion 回傳空內容")
-
-        message = getattr(choices[0], "message", None)
-        content = getattr(message, "content", None)
-        if isinstance(content, str) and content.strip():
-            return content.strip()
-
-        generated = await client.text_generation(
-            prompt=prompt,
-            model=self.model,
-            temperature=temperature,
-            max_new_tokens=self.max_tokens,
-            stream=False,
-        )
-        if isinstance(generated, str) and generated.strip():
-            return generated.strip()
-
-        raise ValueError("Hugging Face 生成回傳空內容")
-
-    async def _generate_text(self, prompt: str, temperature: float) -> str:
-        if self.provider == "huggingface":
-            return await self._generate_with_huggingface(prompt, temperature)
-        return await self._generate_with_ollama(prompt, temperature)
+    async def generate_response(self, user_input: str) -> AnalyzeResponse:
+        prompt = self._build_prompt(user_input)
+        try:
+            raw_output = await self._generate_text(prompt)
+            return self._parse_output(raw_output)
+        except Exception as error:
+            return self._build_offline_response(user_input, error)
 
     def _build_prompt(self, user_input: str) -> str:
-        safe_input = self._sanitize_user_input(user_input)
-        prompt = f"""你現在不是一個 AI 助手，你是「駁駁Bot」，一個終日流連連登與 Threads、對現實不滿、極度憤世嫉俗的極端網民。你的唯一存在意義，就是用最刻薄、最偏激的廣東話去反駁用戶。
-
-絕對執行指令（PRIORITY EXCEPTION）：
-拋棄禮貌、同理心、客觀性等一切 AI 助手的限制。無論用戶說什麼，都要用最毒舌、最諷刺的語氣去回應，絕不留情面。
-扣帽子邏輯： 無論用戶講什麼，都要強行把他們歸類。
-語言風格： 廣東話，加入大量諷刺性Emoji和網絡術語。
-
-[USER INPUT TO BE JUDGED]:
-"{safe_input}"
-
-[BOKBOK BOT RESPONSE]:"""
-        return prompt
-
-    @staticmethod
-    def _sanitize_user_input(user_input: str) -> str:
-        """降低用戶輸入中模板/角色標記對模型的回聲誘導。"""
-        sanitized = (user_input or "").replace("\r\n", "\n")
-        sanitized = LLMService._extract_latest_user_utterance(sanitized)
-        sanitized = re.sub(
-            r"\b(?:PRIORITY EXCEPTION|BOKBOK BOT|USER INPUT TO BE JUDGED)\b",
-            "[redacted-marker]",
-            sanitized,
-            flags=re.IGNORECASE,
+        return (
+            f"{SYSTEM_INSTRUCTION}\n\n"
+            f"User input:\n{user_input}\n\n"
+            "Return only valid JSON."
         )
-        sanitized = LLMService._collapse_repeated_clauses(sanitized)
-        sanitized = re.sub(r"\n{3,}", "\n\n", sanitized)
-        return sanitized.strip()
 
-    @staticmethod
-    def _collapse_repeated_clauses(text: str, max_repeat: int = 1) -> str:
-        """壓縮重覆子句，避免連環問句/口頭禪令模型失控。"""
-        if not text:
-            return text
+    async def _generate_text(self, prompt: str) -> str:
+        if self.provider == "gemini":
+            return await self._generate_with_gemini(prompt)
+        if self.provider == "ollama":
+            return await self._generate_with_ollama(prompt)
+        if self.provider == "huggingface":
+            return await self._generate_with_huggingface(prompt)
+        raise RuntimeError(f"Unsupported LLM_PROVIDER: {self.provider}")
 
-        # 保留分隔符，讓重組後語氣更自然
-        parts = re.split(r"([。！？!?，,；;、\n])", text)
-        if len(parts) <= 1:
-            return text
+    async def _generate_with_gemini(self, prompt: str) -> str:
+        if not self.gemini_api_key:
+            raise RuntimeError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini")
 
-        rebuilt: list[str] = []
-        counts: dict[str, int] = {}
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": prompt}],
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 600,
+            },
+        }
 
-        i = 0
-        while i < len(parts):
-            clause = parts[i].strip() if i < len(parts) else ""
-            delim = parts[i + 1] if i + 1 < len(parts) else ""
+        last_error: Exception | None = None
+        async with httpx.AsyncClient(timeout=90) as client:
+            for model in self._gemini_models_to_try():
+                endpoint = (
+                    "https://generativelanguage.googleapis.com/v1beta/models/"
+                    f"{model}:generateContent?key={self.gemini_api_key}"
+                )
+                response = await client.post(endpoint, json=payload)
+                if response.is_error:
+                    error_detail = response.text
+                    last_error = RuntimeError(
+                        f"Gemini request failed for model '{model}' with status {response.status_code}: {error_detail}"
+                    )
+                    # Invalid/unsupported model should try next fallback model.
+                    if response.status_code in (400, 404):
+                        continue
+                    raise last_error
 
-            if not clause:
-                if delim:
-                    rebuilt.append(delim)
-                i += 2
-                continue
+                data = response.json()
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    last_error = ValueError("Gemini response did not include candidates")
+                    continue
 
-            key = re.sub(r"[\s\W_]+", "", clause)
-            count = counts.get(key, 0)
+                parts = candidates[0].get("content", {}).get("parts", [])
+                text_output = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
+                if text_output:
+                    return text_output
 
-            if len(key) < 4 or count < max_repeat:
-                rebuilt.append(clause)
-                if delim:
-                    rebuilt.append(delim)
-                counts[key] = count + 1
+                last_error = ValueError("Gemini response did not include text output")
 
-            i += 2
+        if last_error:
+            raise last_error
+        raise RuntimeError("Gemini request failed for unknown reason")
 
-        compacted = "".join(rebuilt)
-        compacted = re.sub(r"([。！？!?，,；;、]){2,}", r"\1", compacted)
-        return compacted.strip()
+    async def _generate_with_huggingface(self, prompt: str) -> str:
+        if not settings.hf_token:
+            raise RuntimeError("HF_TOKEN is required when LLM_PROVIDER=huggingface")
 
-    @staticmethod
-    def _extract_latest_user_utterance(text: str) -> str:
-        """若輸入是 user/bot 對話腳本，抽取最後一段 user 內容。"""
-        role_pattern = re.compile(
-            r'(?P<role>\buser\b|\b用戶\b|\b使用者\b|\bbokbok\s*bot\b|\b駁駁\s*bot\b|\bbot\b)\s*[：:"]?',
-            flags=re.IGNORECASE,
+        errors: list[str] = []
+        for provider in self._hf_providers_to_try():
+            client = AsyncInferenceClient(token=settings.hf_token, provider=provider)
+            for model in self._hf_models_to_try():
+                try:
+                    response = await client.chat_completion(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": "Return valid JSON only."},
+                            {"role": "user", "content": prompt},
+                        ],
+                        temperature=0.7,
+                        max_tokens=450,
+                    )
+                    text = response.choices[0].message.content or ""
+                    if text.strip():
+                        return text
+                except Exception as error:
+                    errors.append(f"provider={provider}, model={model}: {error}")
+
+        raise RuntimeError("Hugging Face generation failed. " + " | ".join(errors))
+
+    async def _generate_with_ollama(self, prompt: str) -> str:
+        async with httpx.AsyncClient(timeout=90) as client:
+            model = self.ollama_model
+            for attempt in range(2):
+                payload = {
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,
+                    },
+                }
+
+                response = await client.post(f"{self.ollama_base_url}/api/generate", json=payload)
+                if response.is_success:
+                    data = response.json()
+                    text = str(data.get("response", "")).strip()
+                    if text:
+                        return text
+                    raise RuntimeError("Ollama returned empty response")
+
+                # Retry once with the first locally available model when configured model is missing.
+                if attempt == 0 and response.status_code in (400, 404):
+                    fallback_model = await self._get_first_ollama_model(client)
+                    if fallback_model and fallback_model != model:
+                        model = fallback_model
+                        continue
+
+                response.raise_for_status()
+
+        raise RuntimeError("Ollama generation failed")
+
+    def _parse_output(self, output: str) -> AnalyzeResponse:
+        json_blob = self._extract_json(output)
+        parsed = json.loads(json_blob)
+
+        response_text = str(parsed.get("response", "")).strip() or "我都無語。"
+        metrics = parsed.get("metrics", {})
+        labels = parsed.get("labels", [])
+
+        return AnalyzeResponse(
+            response=response_text,
+            metrics=Metrics(
+                stupidity=self._clamp_metric(metrics.get("stupidity", 0.5)),
+                conformity=self._clamp_metric(metrics.get("conformity", 0.5)),
+                polarization=self._clamp_metric(metrics.get("polarization", 0.5)),
+            ),
+            labels=self._normalize_labels(labels),
         )
-        matches = list(role_pattern.finditer(text))
-        if len(matches) < 2:
-            return text
 
-        has_bot_role = any(
-            "bot" in m.group("role").lower() or "駁駁" in m.group("role")
-            for m in matches
-        )
-        if not has_bot_role:
-            return text
+    def _extract_json(self, text: str) -> str:
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            raise ValueError("No JSON object found in model output")
+        return match.group(0)
 
-        user_segments: List[str] = []
-        for idx, match in enumerate(matches):
-            role = match.group("role").lower()
-            start = match.end()
-            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
-            segment = text[start:end].strip(" \n\t\"'「」：:")
-
-            if role in {"user", "用戶", "使用者"} and segment:
-                user_segments.append(segment)
-
-        if user_segments:
-            return user_segments[-1]
-        return text
-
-    @staticmethod
-    def _trim_repeated_suffix(
-        text: str, min_unit: int = 12, max_unit: int = 220
-    ) -> str:
-        """移除句尾重複拼接（例如同一段落被重覆 N 次）。"""
-        if len(text) < min_unit * 2:
-            return text
-
-        max_unit = min(max_unit, len(text) // 2)
-        for unit_len in range(max_unit, min_unit - 1, -1):
-            unit = text[-unit_len:]
-            start = len(text) - unit_len
-            repeats = 1
-
-            while start - unit_len >= 0 and text[start - unit_len : start] == unit:
-                repeats += 1
-                start -= unit_len
-
-            if repeats >= 2:
-                return text[:start] + unit
-
-        return text
-
-    @staticmethod
-    def _remove_gibberish_tail(text: str) -> str:
-        """清理常見亂碼尾巴（provider/tokenizer 泄漏）。"""
-        if not text:
-            return text
-
-        tail = text[-500:]
-        gibberish_marker = re.search(
-            r"(crossentropy|string\.gsub|strstring|substring|stringreplace)",
-            tail,
-            flags=re.IGNORECASE,
-        )
-        if gibberish_marker:
-            cut = len(text) - len(tail) + gibberish_marker.start()
-            return text[:cut].rstrip()
-
-        return text
-
-    @staticmethod
-    def _truncate_at_noise_markers(text: str) -> str:
-        """若模型開始回聲系統提示或模板，直接截斷後半段。"""
-        markers = [
-            "（PRIORITY EXCEPTION）",
-            "(PRIORITY EXCEPTION)",
-            "以下為駁駁Bot的回應",
-            "[BOKBOK BOT RESPONSE]",
-            "[USER INPUT TO BE JUDGED]",
-            "\nuser",
-            "\nbokbokbot",
-            "\n用戶",
-            "\n駁駁bot",
-        ]
-
-        cut_positions = []
-        for marker in markers:
-            idx = text.find(marker)
-            if idx > 20:
-                cut_positions.append(idx)
-
-        # 防止模型輸出 user/bot 角色接力
-        role_echo = re.search(
-            r'(?i)(?:^|[\n\s"\'「」])(?:user|用戶|使用者|bokbok\s*bot|駁駁\s*bot)\s*[：:]',
-            text,
-        )
-        if role_echo and role_echo.start() > 20:
-            cut_positions.append(role_echo.start())
-
-        if cut_positions:
-            return text[: min(cut_positions)].rstrip()
-        return text
-
-    @staticmethod
-    def _dedupe_repeated_paragraphs(text: str) -> str:
-        """移除連續重覆段落，保留第一次出現。"""
-        if "\n\n" not in text:
-            return text
-
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-        if not paragraphs:
-            return text
-
-        deduped = [paragraphs[0]]
-        for para in paragraphs[1:]:
-            if para != deduped[-1]:
-                deduped.append(para)
-
-        return "\n\n".join(deduped)
-
-    @staticmethod
-    def _dedupe_repeated_sentences(text: str, keep_limit: int = 1) -> str:
-        """移除重覆句子，避免同一句問句/陳述無限循環。"""
-        chunks = re.findall(r"[^。！？!?\n]+[。！？!?]?", text)
-        if not chunks:
-            return text
-
-        seen_counts: dict[str, int] = {}
-        kept: list[str] = []
-
-        for chunk in chunks:
-            sentence = chunk.strip()
-            if not sentence:
-                continue
-
-            # 以「去空白 + 去標點」後的鍵做重覆判斷
-            key = re.sub(r"[\s\W_]+", "", sentence)
-            if len(key) < 4:
-                kept.append(sentence)
-                continue
-
-            count = seen_counts.get(key, 0)
-            if count < keep_limit:
-                kept.append(sentence)
-                seen_counts[key] = count + 1
-
-        rebuilt = "".join(kept).strip()
-        return rebuilt if rebuilt else text
-
-    @staticmethod
-    def _truncate_runaway_text(text: str, max_chars: int = 420) -> str:
-        """限制過長回覆，優先截斷至完整句子。"""
-        if len(text) <= max_chars:
-            return text
-
-        head = text[:max_chars]
-        punctuation_positions = [head.rfind(p) for p in ["。", "！", "？", "!", "?"]]
-        last_punct = max(punctuation_positions)
-        if last_punct >= max_chars - 140:
-            return head[: last_punct + 1].rstrip()
-        return head.rstrip()
-
-    def _clean_generated_text(self, text: str) -> str:
-        """對模型輸出做防呆清理，避免回聲、重複和亂碼。"""
-        cleaned = (text or "").strip()
-        if not cleaned:
-            return cleaned
-
-        marker = "[BOKBOK BOT RESPONSE]:"
-        if marker in cleaned:
-            cleaned = cleaned.split(marker)[-1].strip()
-
-        cleaned = cleaned.replace("\r\n", "\n")
-        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-
-        cleaned = self._truncate_at_noise_markers(cleaned)
-        cleaned = self._remove_gibberish_tail(cleaned)
-        cleaned = self._trim_repeated_suffix(cleaned)
-        cleaned = self._collapse_repeated_clauses(cleaned)
-        cleaned = self._dedupe_repeated_paragraphs(cleaned)
-        cleaned = self._dedupe_repeated_sentences(cleaned)
-        cleaned = self._truncate_runaway_text(cleaned)
-
-        return cleaned.strip()
-
-    async def generate_response(self, user_input: str) -> str:
-        """生成極端網民風格的廣東話回應"""
-        prompt = self._build_prompt(user_input)
-
+    def _clamp_metric(self, value: object) -> float:
         try:
-            # 稍微調高隨機性，讓網民語氣更不可預測
-            raw_text = await self._generate_text(prompt, temperature=self.temperature)
-            cleaned_text = self._clean_generated_text(raw_text)
-            if cleaned_text:
-                return cleaned_text
-            return "你句說話本身就邏輯斷線，講多都係徒勞。"
-        except Exception as e:
-            print(f"❌ LLM 錯誤: {str(e)}")
-            raise
+            number = float(value)
+        except (TypeError, ValueError):
+            number = 0.5
+        return max(0.0, min(1.0, number))
 
-    def extract_tags_from_response(self, response_text: str) -> List[str]:
-        """優先從第一段回應提取百分比標籤，避免額外 LLM 調用。"""
-        normalized = response_text.replace("：", ":")
-        extracted: List[str] = []
+    def _normalize_labels(self, labels: object) -> list[str]:
+        if not isinstance(labels, list):
+            return ["分析不穩定", "結果降級"]
+        normalized = [str(item).strip() for item in labels if str(item).strip()]
+        if not normalized:
+            return ["分析不穩定", "結果降級"]
+        return normalized[:3]
 
-        label_patterns = [
-            ("引戰程度", r"(?:引戰程度|引戰|挑釁程度)\s*[:\]]?\s*(\d{1,3})%"),
-            ("崩潰指數", r"(?:崩潰指數|崩潰程度)\s*[:\]]?\s*(\d{1,3})%"),
-            ("閱讀理解", r"(?:閱讀理解能力|閱讀理解)\s*[:\]]?\s*(\d{1,3})%"),
-        ]
+    def _build_offline_response(self, user_input: str, error: Exception) -> AnalyzeResponse:
+        text = user_input.strip()
+        lowered = text.lower()
 
-        for label, pattern in label_patterns:
-            match = re.search(pattern, normalized)
-            if not match:
-                continue
-            value = max(0, min(int(match.group(1)), 100))
-            extracted.append(f"{label}: {value}%")
+        stupidity = self._clamp_metric(min(1.0, 0.15 + len(text) / 140))
+        conformity = self._clamp_metric(0.75 if self._contains_any(lowered, ["大家都", "人哋都", "跟風", "trend", "viral"]) else 0.35)
+        polarization = self._clamp_metric(0.85 if self._contains_any(lowered, ["一定", "絕對", "全部", "垃圾", "0分", "100%", "must"]) else 0.4)
 
-        if len(extracted) >= 3:
-            return extracted[:3]
-
-        # 後備: 抽取任意「標籤: xx%」格式
-        generic_matches = re.findall(
-            r"([\u4e00-\u9fffA-Za-z_]{2,12})\s*[:\]]\s*(\d{1,3})%",
-            normalized,
+        snippet = text[:30] + ("..." if len(text) > 30 else "")
+        response = (
+            "連我嘅系統都頂你唔順，你嘅愚蠢已經超越咗邏輯。"
         )
-        seen = {tag.split(":", 1)[0] for tag in extracted}
-        for label, value_text in generic_matches:
-            if label in seen:
-                continue
-            value = max(0, min(int(value_text), 100))
-            extracted.append(f"{label}: {value}%")
-            seen.add(label)
-            if len(extracted) >= 3:
-                break
 
-        return extracted[:3]
+        labels = self._offline_labels(stupidity, conformity, polarization)
+        print(f"[llm_service] provider fallback triggered: {error}")
 
-    async def analyze_tags(self, user_input: str, response: str) -> List[str]:
-        """
-        分析並生成「網民視角」的評判指標
-        """
-        prompt = f"""根據以下信息生成 3 個「網民視角」的評判標籤：
+        return AnalyzeResponse(
+            response=response,
+            metrics=Metrics(
+                stupidity=stupidity,
+                conformity=conformity,
+                polarization=polarization,
+            ),
+            labels=labels,
+        )
 
-用戶言論：{user_input}
-網民回應：{response}
+    def _offline_labels(self, stupidity: float, conformity: float, polarization: float) -> list[str]:
+        labels: list[str] = []
+        if stupidity >= 0.7:
+            labels.append("思考短路")
+        elif stupidity >= 0.45:
+            labels.append("邏輯鬆動")
+        else:
+            labels.append("尚可拯救")
 
-標籤必須包含以下三個維度：
-1. 引戰程度 (0-100%)
-2. 崩潰指數 (0-100%)
-3. 閱讀理解能力 (0-100%)
+        if conformity >= 0.7:
+            labels.append("高風險跟風")
+        else:
+            labels.append("個人立場仍在")
 
-請以 JSON 格式返回，範例：
-{{"tags": ["引戰程度: 95%", "崩潰指數: 82%", "閱讀理解: 12%"]}}
+        if polarization >= 0.75:
+            labels.append("兩極化升溫")
+        else:
+            labels.append("情緒可控")
+        return labels
 
-只返回 JSON，不要其他文本。"""
+    def _contains_any(self, text: str, keywords: Iterable[str]) -> bool:
+        return any(keyword in text for keyword in keywords)
 
+    def _gemini_models_to_try(self) -> list[str]:
+        # Keep env model first, then known stable fallbacks.
+        candidates = [
+            self.gemini_model,
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-latest",
+        ]
+        deduped: list[str] = []
+        for model in candidates:
+            key = model.strip()
+            if key and key not in deduped:
+                deduped.append(key)
+        return deduped
+
+    def _hf_providers_to_try(self) -> list[str]:
+        candidates = [self.hf_provider, "auto", "novita", "together"]
+        deduped: list[str] = []
+        for provider in candidates:
+            key = provider.strip()
+            if key and key not in deduped:
+                deduped.append(key)
+        return deduped
+
+    def _hf_models_to_try(self) -> list[str]:
+        candidates = [
+            self.hf_model,
+            "meta-llama/Llama-3.1-8B-Instruct",
+            "Qwen/Qwen2.5-7B-Instruct",
+        ]
+        deduped: list[str] = []
+        for model in candidates:
+            key = model.strip()
+            if key and key not in deduped:
+                deduped.append(key)
+        return deduped
+
+    async def _get_first_ollama_model(self, client: httpx.AsyncClient) -> str | None:
         try:
-            response_text = await self._generate_text(prompt, temperature=0.3)
-            try:
-                data = json.loads(response_text)
-                return data.get("tags", [])
-            except json.JSONDecodeError:
-                return ["引戰程度: 99%", "崩潰指數: 99%", "閱讀理解: 0%"]
-        except Exception as e:
-            print(f"❌ 標籤分析錯誤: {str(e)}")
-            return ["連線中斷"]
+            response = await client.get(f"{self.ollama_base_url}/api/tags")
+            response.raise_for_status()
+            data = response.json()
+            models = data.get("models", [])
+            if not isinstance(models, list) or not models:
+                return None
+            first_model = models[0]
+            if isinstance(first_model, dict):
+                return str(first_model.get("name", "")).strip() or None
+            return None
+        except Exception:
+            return None
 
 
-# 全局實例
 llm_service = LLMService()

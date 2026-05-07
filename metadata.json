@@ -1,0 +1,5 @@
+{
+  "name": "BokBok Bot",
+  "description": "A satirical AI that critiques social media polarization with a mean, nihilistic digital inquisitor persona.",
+  "requestFramePermissions": ["camera"]
+}
