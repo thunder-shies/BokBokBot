@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Iterable
 
 import httpx
 from huggingface_hub import AsyncInferenceClient
+from google import genai
+from google.genai import types
 
 from config import settings
 from app.models.schemas import AnalyzeResponse, Metrics
@@ -47,6 +50,10 @@ class LLMService:
         self.provider = settings.llm_provider
         self.gemini_api_key = settings.gemini_api_key
         self.gemini_model = settings.gemini_model
+        self.gemini_use_vertex = settings.gemini_use_vertex
+        self.gcp_project_id = settings.gcp_project_id
+        self.gcp_location = settings.gcp_location
+        self.google_application_credentials = settings.google_application_credentials
         self.hf_model = settings.hf_model
         self.hf_provider = settings.hf_provider
         self.ollama_base_url = settings.ollama_base_url
@@ -77,52 +84,56 @@ class LLMService:
         raise RuntimeError(f"Unsupported LLM_PROVIDER: {self.provider}")
 
     async def _generate_with_gemini(self, prompt: str) -> str:
-        if not self.gemini_api_key:
-            raise RuntimeError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini")
+        use_vertex = self.gemini_use_vertex or (not self.gemini_api_key and bool(self.gcp_project_id))
+        client = None
 
-        payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": prompt}],
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 600,
-            },
-        }
+        if use_vertex:
+            if not self.gcp_project_id:
+                raise RuntimeError("GCP_PROJECT_ID is required when GEMINI_USE_VERTEX=true")
+            if self.google_application_credentials:
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self.google_application_credentials
+            
+            client = genai.Client(
+                vertexai=True,
+                project=self.gcp_project_id,
+                location=self.gcp_location
+            )
+        else:
+            if not self.gemini_api_key:
+                raise RuntimeError(
+                    "Set GEMINI_API_KEY or enable GEMINI_USE_VERTEX with GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS"
+                )
+            client = genai.Client(api_key=self.gemini_api_key)
+
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)]
+            )
+        ]
+
+        generate_content_config = types.GenerateContentConfig(
+            temperature=0.7,
+            max_output_tokens=600,
+        )
 
         last_error: Exception | None = None
-        async with httpx.AsyncClient(timeout=90) as client:
-            for model in self._gemini_models_to_try():
-                endpoint = (
-                    "https://generativelanguage.googleapis.com/v1beta/models/"
-                    f"{model}:generateContent?key={self.gemini_api_key}"
+        for model in self._gemini_models_to_try():
+            try:
+                response = await client.aio.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=generate_content_config,
                 )
-                response = await client.post(endpoint, json=payload)
-                if response.is_error:
-                    error_detail = response.text
-                    last_error = RuntimeError(
-                        f"Gemini request failed for model '{model}' with status {response.status_code}: {error_detail}"
-                    )
-                    # Invalid/unsupported model should try next fallback model.
-                    if response.status_code in (400, 404):
-                        continue
-                    raise last_error
-
-                data = response.json()
-                candidates = data.get("candidates", [])
-                if not candidates:
-                    last_error = ValueError("Gemini response did not include candidates")
-                    continue
-
-                parts = candidates[0].get("content", {}).get("parts", [])
-                text_output = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
-                if text_output:
-                    return text_output
-
+                if response.text:
+                    return response.text
                 last_error = ValueError("Gemini response did not include text output")
+            except Exception as e:
+                last_error = e
+                # Try fallback models for 404s/400s
+                if "404" in str(e) or "400" in str(e) or "NOT_FOUND" in str(e):
+                    continue
+                raise last_error
 
         if last_error:
             raise last_error
@@ -278,8 +289,7 @@ class LLMService:
         # Keep env model first, then known stable fallbacks.
         candidates = [
             self.gemini_model,
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-latest",
+            "gemini-3.1-flash-lite"
         ]
         deduped: list[str] = []
         for model in candidates:

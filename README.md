@@ -72,6 +72,10 @@ LLM_PROVIDER=huggingface
 # Gemini
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-1.5-flash
+GEMINI_USE_VERTEX=false
+GCP_PROJECT_ID=
+GCP_LOCATION=us-central1
+GOOGLE_APPLICATION_CREDENTIALS=
 
 # Hugging Face
 HF_TOKEN=
@@ -163,6 +167,14 @@ The Vite dev server proxies `/api/*` requests to `http://localhost:8001`.
 
 - Requires a valid `GEMINI_API_KEY`
 - Uses the configured Gemini model first
+
+To use Google Cloud service account auth instead of API key:
+
+- Set `LLM_PROVIDER=gemini`
+- Set `GEMINI_USE_VERTEX=true`
+- Set `GCP_PROJECT_ID` and `GCP_LOCATION`
+- Set `GOOGLE_APPLICATION_CREDENTIALS` to your service account JSON file path
+- Ensure the service account has Vertex AI User permission in the project
 
 ### Hugging Face
 

@@ -9,7 +9,16 @@ load_dotenv(override=True)
 class Settings:
     llm_provider: str = os.getenv("LLM_PROVIDER", "huggingface").strip().lower()
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+    gemini_use_vertex: bool = os.getenv("GEMINI_USE_VERTEX", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    gcp_project_id: str = os.getenv("GCP_PROJECT_ID", "")
+    gcp_location: str = os.getenv("GCP_LOCATION", "global")
+    google_application_credentials: str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
     hf_token: str = os.getenv("HF_TOKEN", "")
     hf_model: str = os.getenv("HF_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
     hf_provider: str = os.getenv("HF_PROVIDER", "featherless-ai")
