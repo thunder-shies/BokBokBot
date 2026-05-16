@@ -12,11 +12,6 @@ interface WebcamPreviewProps {
 }
 
 export const WebcamPreview: React.FC<WebcamPreviewProps> = ({ broadcastEvent }) => {
-interface WebcamPreviewProps {
-  broadcastEvent?: (payload: any) => void;
-}
-
-export const WebcamPreview: React.FC<WebcamPreviewProps> = ({ broadcastEvent }) => {
   const webcamRef = useRef<Webcam | null>(null);
   const [detection, setDetection] = useState<PersonDetectionResponse>({
     detected: false,
@@ -160,3 +155,5 @@ export const WebcamPreview: React.FC<WebcamPreviewProps> = ({ broadcastEvent }) 
     </div>
   );
 };
+
+export default WebcamPreview;

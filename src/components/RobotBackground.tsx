@@ -1,158 +1,193 @@
 import React, { useEffect, useRef, useState } from 'react';
+
 import appearSrc from '../assets/video/bokbokBot_appear.mp4';
 import replySrc from '../assets/video/bokbokBot_replyOthers.mp4';
 import stareSrc from '../assets/video/bokbokBot_stare.mp4';
 import talkSrc from '../assets/video/bokbokBot_talk.mp4';
 
-type Mode = 'hidden' | 'appear' | 'replyLoop' | 'stareLoop' | 'talk';
+type Mode = 'reply' | 'stare' | 'talk';
 
 export const RobotBackground: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const detectedRef = useRef<boolean>(false);
-  const pendingModeRef = useRef<Mode | null>(null);
-  const [mode, setMode] = useState<Mode>('hidden');
 
-  const play = async (src: string, loop = false) => {
+  const [mode, setMode] = useState<Mode>('reply');
+
+  const modeRef = useRef<Mode>('reply');
+  const detectedRef = useRef<boolean>(false);
+
+  const lastPlayedRef = useRef<
+    'appear' | 'reply' | 'stare' | 'talk' | null
+  >(null);
+
+  const updateMode = (m: Mode) => {
+    modeRef.current = m;
+    setMode(m);
+  };
+
+  const play = async (
+    src: string,
+    tag: 'appear' | 'reply' | 'stare' | 'talk'
+  ) => {
     const v = videoRef.current;
     if (!v) return;
-    v.onended = null;
-    v.loop = loop;
-    v.muted = true;
-    v.src = src;
+
     try {
+      v.pause();
+
+      v.loop = false;
+
+      if (!v.src.includes(src.split('/').pop() || '')) {
+        v.src = src;
+        v.load();
+      }
+
+      lastPlayedRef.current = tag;
+
       await v.play();
-    } catch (e) {
-      // autoplay blocked or other error
+
+      console.debug('[RobotBackground] playing:', {
+        tag,
+        mode: modeRef.current,
+      });
+    } catch (err) {
+      console.error('[RobotBackground] play failed:', err);
     }
   };
 
-  const lastPlayedRef = useRef<string | null>(null);
-  const loopTypeRef = useRef<'reply' | 'stare' | null>(null);
-
-  const playWithTag = async (src: string, loop = false, tag?: string) => {
-    lastPlayedRef.current = tag ?? null;
-    if (tag === 'stare') {
-      loopTypeRef.current = 'stare';
-    } else if (tag === 'reply') {
-      loopTypeRef.current = 'reply';
-    }
-    await play(src, loop);
-  };
-
-  // switch to appropriate loop after appear ends
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
 
     const handleEnded = () => {
-      // If we're alternating reply loop (appear <-> reply), toggle between them
-      if (loopTypeRef.current === 'reply') {
-        // If last played was appear, play reply; otherwise play appear.
-        if (lastPlayedRef.current === 'appear') {
-          setMode('replyLoop');
-          // reply should not loop by itself; we'll alternate
-          playWithTag(replySrc, false, 'reply');
-        } else {
-          setMode('replyLoop');
-          playWithTag(appearSrc, false, 'appear');
-        }
-        return;
-      }
+      console.debug('[RobotBackground] ended:', {
+        mode: modeRef.current,
+        lastPlayed: lastPlayedRef.current,
+      });
 
-      if (pendingModeRef.current === 'replyLoop') {
-        // first transition after appear -> start reply-appear alternating
-        pendingModeRef.current = 'replyLoop';
-        setMode('replyLoop');
-        loopTypeRef.current = 'reply';
-        playWithTag(replySrc, false, 'reply');
-      } else if (pendingModeRef.current === 'stareLoop') {
-        setMode('stareLoop');
-        loopTypeRef.current = 'stare';
-        playWithTag(stareSrc, true, 'stare');
+      switch (modeRef.current) {
+        case 'reply':
+          if (lastPlayedRef.current === 'appear') {
+            play(replySrc, 'reply');
+          } else {
+            play(appearSrc, 'appear');
+          }
+          break;
+
+        case 'stare':
+          play(stareSrc, 'stare');
+          break;
+
+        case 'talk':
+          play(talkSrc, 'talk');
+          break;
       }
-      pendingModeRef.current = null;
     };
 
     v.addEventListener('ended', handleEnded);
+
     return () => {
       v.removeEventListener('ended', handleEnded);
     };
   }, []);
 
-  // Message handler
   useEffect(() => {
     const onMessage = (ev: MessageEvent) => {
       const msg = ev.data;
+
       if (!msg || typeof msg.type !== 'string') return;
+
+      console.debug('[RobotBackground] message:', msg.type);
+
+      // =========================
+      // VISION
+      // =========================
 
       if (msg.type === 'VISION') {
         const { detected } = msg.payload || {};
-        const isDetected = !!detected;
-        // update stored detection
-        detectedRef.current = isDetected;
-        // If currently talking, don't change mode until TTS finishes
-        if (mode === 'talk') return;
 
-        // If already in the correct loop, do nothing
-        if ((isDetected && mode === 'stareLoop') || (!isDetected && mode === 'replyLoop')) {
+        detectedRef.current = !!detected;
+
+        console.debug('[RobotBackground] detected:', detectedRef.current);
+
+        // talking has highest priority
+        if (modeRef.current === 'talk') {
           return;
         }
 
-        // Play appear then chosen loop
-        pendingModeRef.current = isDetected ? 'stareLoop' : 'replyLoop';
-        setMode('appear');
-        playWithTag(appearSrc, false, 'appear');
+        if (detectedRef.current) {
+          if (modeRef.current !== 'stare') {
+            updateMode('stare');
+            play(stareSrc, 'stare');
+          }
+        } else {
+          if (modeRef.current !== 'reply') {
+            updateMode('reply');
+            play(appearSrc, 'appear');
+          }
+        }
+
+        return;
       }
+
+      // =========================
+      // TTS STARTED
+      // =========================
 
       if (msg.type === 'ROBOT_TTS_STARTED') {
-        // Enter talk loop and keep looping until TTS_FINISHED
-        pendingModeRef.current = null;
-        setMode('talk');
-        playWithTag(talkSrc, true, 'talk');
+        updateMode('talk');
+
+        play(talkSrc, 'talk');
+
+        return;
       }
 
+      // =========================
+      // TTS FINISHED
+      // =========================
+
       if (msg.type === 'ROBOT_TTS_FINISHED') {
-        // return to appropriate loop based on last detection
-        const next = detectedRef.current ? 'stareLoop' : 'replyLoop';
-        if (next === 'stareLoop') {
-          setMode('stareLoop');
-          loopTypeRef.current = 'stare';
-          playWithTag(stareSrc, true, 'stare');
+        if (detectedRef.current) {
+          updateMode('stare');
+          play(stareSrc, 'stare');
         } else {
-          // start the alternating appear+reply loop
-          pendingModeRef.current = 'replyLoop';
-          loopTypeRef.current = 'reply';
-          setMode('appear');
-          playWithTag(appearSrc, false, 'appear');
+          updateMode('reply');
+          play(appearSrc, 'appear');
         }
+
+        return;
       }
     };
 
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [mode]);
 
-  // initial hidden -> assume no people: show appear then reply loop
+    return () => {
+      window.removeEventListener('message', onMessage);
+    };
+  }, []);
+
+  // =========================
+  // INITIAL STATE
+  // =========================
+
   useEffect(() => {
-    // small delay to allow other listeners to initialize
     const t = window.setTimeout(() => {
-      pendingModeRef.current = 'replyLoop';
-      loopTypeRef.current = 'reply';
-      setMode('appear');
-      playWithTag(appearSrc, false, 'appear');
+      updateMode('reply');
+      play(appearSrc, 'appear');
     }, 200);
+
     return () => window.clearTimeout(t);
   }, []);
 
   return (
     <div className="absolute inset-0 z-0">
       <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/40 z-10" />
+
       <video
         ref={videoRef}
         className="w-full h-full object-cover brightness-75 contrast-110"
         playsInline
-        muted
       />
+
       <div className="absolute inset-0 pointer-events-none z-20 opacity-20 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%]" />
     </div>
   );
