@@ -156,13 +156,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     if (isOverLimit) return;
     if (!input.trim()) return;
     onSendMessage(input);
-    try {
-      const payload = { type: 'ROBOT_USER_INPUT', text: input };
-      if (broadcastEvent) broadcastEvent(payload);
-      window.postMessage(payload, '*');
-    } catch (e) {
-      // ignore
-    }
     setInput('');
   };
 
@@ -232,27 +225,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       const utterance = new SpeechSynthesisUtterance(nextText);
       utterance.lang = 'zh-HK';
       utterance.rate = 2;
-      try {
-        const payload = { type: 'ROBOT_TTS_STARTED', text: nextText };
-        if (broadcastEvent) broadcastEvent(payload);
-        window.postMessage(payload, '*');
-      } catch (e) {}
       utterance.onend = () => {
         // Keep subtitles briefly after speech ends for readability.
         scheduleCcClear(2500);
-        try {
-          const payload = { type: 'ROBOT_TTS_FINISHED', text: nextText };
-          if (broadcastEvent) broadcastEvent(payload);
-          window.postMessage(payload, '*');
-        } catch (e) {}
       };
       utterance.onerror = () => {
         scheduleCcClear(2500);
-        try {
-          const payload = { type: 'ROBOT_TTS_FINISHED', text: nextText };
-          if (broadcastEvent) broadcastEvent(payload);
-          window.postMessage(payload, '*');
-        } catch (e) {}
       };
       window.speechSynthesis.speak(utterance);
       lastSpokenAiCountRef.current = aiMessageCount;
@@ -261,18 +239,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
 
     // If TTS is unavailable, still auto-hide the CC after a short delay and notify finish.
     scheduleCcClear(3500);
-    if (ttsFinishTimerRef.current !== null) {
-      globalThis.clearTimeout(ttsFinishTimerRef.current);
-      ttsFinishTimerRef.current = null;
-    }
-    ttsFinishTimerRef.current = globalThis.setTimeout(() => {
-      try {
-        const payload = { type: 'ROBOT_TTS_FINISHED', text: nextText };
-        if (broadcastEvent) broadcastEvent(payload);
-        window.postMessage(payload, '*');
-      } catch (e) {}
-      ttsFinishTimerRef.current = null;
-    }, 3500);
     lastSpokenAiCountRef.current = aiMessageCount;
   }, [messages, isTyping]);
 
