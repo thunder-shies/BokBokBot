@@ -7,6 +7,7 @@ export function isAppLocale(value: string): value is AppLocale {
   return value === 'zh-HK' || value === 'en';
 }
 
+/** Cantonese UI uses zh-HK; zh-TW can be tried if Traditional output is unstable. */
 export function speechRecognitionLang(locale: AppLocale): string {
   return locale === 'en' ? 'en-US' : 'zh-HK';
 }

@@ -49,7 +49,7 @@ export default function App() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <Cpu size={20} className="text-white" />
-            <h1 className="text-lg font-bold tracking-[0.3em] uppercase">BokBok_Bot_v0.1</h1>
+            <h1 className="text-lg font-bold tracking-[0.3em] uppercase">駁Bok駁Bok_Bot</h1>
           </div>
           <div className="h-4 w-[1px] bg-white/20" />
           <div className="flex items-center gap-2 text-[10px] text-white/40 uppercase tracking-widest">

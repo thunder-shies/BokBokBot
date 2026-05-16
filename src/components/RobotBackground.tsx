@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-
 import appearSrc from '../assets/video/bokbokBot_appear.mp4';
 import replySrc from '../assets/video/bokbokBot_replyOthers.mp4';
 import stareSrc from '../assets/video/bokbokBot_stare.mp4';
@@ -14,6 +13,7 @@ export const RobotBackground: React.FC = () => {
 
   const modeRef = useRef<Mode>('reply');
   const detectedRef = useRef<boolean>(false);
+  const playTokenRef = useRef(0);
 
   const lastPlayedRef = useRef<
     'appear' | 'reply' | 'stare' | 'talk' | null
@@ -26,15 +26,19 @@ export const RobotBackground: React.FC = () => {
 
   const play = async (
     src: string,
-    tag: 'appear' | 'reply' | 'stare' | 'talk'
+    tag: 'appear' | 'reply' | 'stare' | 'talk',
+    loop = false
   ) => {
     const v = videoRef.current;
     if (!v) return;
+    const playToken = (playTokenRef.current += 1);
 
     try {
       v.pause();
 
-      v.loop = false;
+      // Keep video muted to satisfy autoplay policies.
+      v.muted = true;
+      v.loop = loop;
 
       if (!v.src.includes(src.split('/').pop() || '')) {
         v.src = src;
@@ -45,11 +49,20 @@ export const RobotBackground: React.FC = () => {
 
       await v.play();
 
+      if (playToken !== playTokenRef.current) {
+        return;
+      }
+
       console.debug('[RobotBackground] playing:', {
         tag,
         mode: modeRef.current,
+        loop,
       });
     } catch (err) {
+      const errorName = err && typeof err === 'object' && 'name' in err ? err.name : undefined;
+      if (errorName === 'AbortError') {
+        return;
+      }
       console.error('[RobotBackground] play failed:', err);
     }
   };
@@ -67,18 +80,18 @@ export const RobotBackground: React.FC = () => {
       switch (modeRef.current) {
         case 'reply':
           if (lastPlayedRef.current === 'appear') {
-            play(replySrc, 'reply');
+            play(replySrc, 'reply', false);
           } else {
-            play(appearSrc, 'appear');
+            play(appearSrc, 'appear', false);
           }
           break;
 
         case 'stare':
-          play(stareSrc, 'stare');
+          play(stareSrc, 'stare', true);
           break;
 
         case 'talk':
-          play(talkSrc, 'talk');
+          play(talkSrc, 'talk', true);
           break;
       }
     };
@@ -117,12 +130,12 @@ export const RobotBackground: React.FC = () => {
         if (detectedRef.current) {
           if (modeRef.current !== 'stare') {
             updateMode('stare');
-            play(stareSrc, 'stare');
+            play(stareSrc, 'stare', true);
           }
         } else {
           if (modeRef.current !== 'reply') {
             updateMode('reply');
-            play(appearSrc, 'appear');
+            play(appearSrc, 'appear', false);
           }
         }
 
@@ -136,7 +149,7 @@ export const RobotBackground: React.FC = () => {
       if (msg.type === 'ROBOT_TTS_STARTED') {
         updateMode('talk');
 
-        play(talkSrc, 'talk');
+        play(talkSrc, 'talk', true);
 
         return;
       }
@@ -148,10 +161,10 @@ export const RobotBackground: React.FC = () => {
       if (msg.type === 'ROBOT_TTS_FINISHED') {
         if (detectedRef.current) {
           updateMode('stare');
-          play(stareSrc, 'stare');
+          play(stareSrc, 'stare', true);
         } else {
           updateMode('reply');
-          play(appearSrc, 'appear');
+          play(appearSrc, 'appear', false);
         }
 
         return;
@@ -172,7 +185,7 @@ export const RobotBackground: React.FC = () => {
   useEffect(() => {
     const t = window.setTimeout(() => {
       updateMode('reply');
-      play(appearSrc, 'appear');
+      play(appearSrc, 'appear', false);
     }, 200);
 
     return () => window.clearTimeout(t);

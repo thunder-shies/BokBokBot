@@ -3,7 +3,7 @@ import { Send, Terminal, Settings, Maximize, Volume2, VolumeX, Pause, Captions, 
 import { motion, AnimatePresence } from 'motion/react';
 import { RobotBackground } from './RobotBackground';
 import { WalkingChibis } from './WalkingChibis';
-import { useLanguage, speechRecognitionLang, speechSynthesisLang } from '../i18n';
+import { useLanguage, speechRecognitionLang, speechSynthesisLang, type TranslationKey } from '../i18n';
 
 interface Message {
   role: 'user' | 'ai';
@@ -23,11 +23,17 @@ interface SpeechRecognitionAlternativeLike {
 }
 
 interface SpeechRecognitionResultLike {
+  isFinal: boolean;
   0: SpeechRecognitionAlternativeLike;
 }
 
 interface SpeechRecognitionEventLike extends Event {
+  resultIndex: number;
   results: ArrayLike<SpeechRecognitionResultLike>;
+}
+
+interface SpeechRecognitionErrorEventLike extends Event {
+  error: string;
 }
 
 interface SpeechRecognitionLike {
@@ -36,11 +42,18 @@ interface SpeechRecognitionLike {
   continuous: boolean;
   onstart: (() => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
   start: () => void;
   stop: () => void;
 }
+
+const STT_ERROR_KEYS: Record<string, TranslationKey> = {
+  'not-allowed': 'sttErrorNotAllowed',
+  'no-speech': 'sttErrorNoSpeech',
+  'audio-capture': 'sttErrorAudioCapture',
+  network: 'sttErrorNetwork',
+};
 
 type SpeechRecognitionCtorLike = new () => SpeechRecognitionLike;
 
@@ -59,14 +72,151 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
   const [currentCC, setCurrentCC] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isSpeechSupported, setIsSpeechSupported] = useState(false);
+  const [sttErrorKey, setSttErrorKey] = useState<TranslationKey | null>(null);
   const [showVolumeMuted, setShowVolumeMuted] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const finalTranscriptRef = useRef('');
+  const interimTranscriptRef = useRef('');
+  const historicalTranscriptRef = useRef('');
+  const wantsListeningRef = useRef(false);
+  const hasReceivedSpeechRef = useRef(false);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const sttErrorTimerRef = useRef<number | null>(null);
+  const recognitionRestartTimerRef = useRef<number | null>(null);
+  const noSpeechWarningTimerRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastSpokenAiCountRef = useRef<number>(0);
   const volumeResetTimerRef = useRef<number | null>(null);
   const ccClearTimerRef = useRef<number | null>(null);
   const ttsFinishTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const isOverLimit = input.length > MAX_INPUT_LENGTH;
+
+  const clearTranscriptBuffer = () => {
+    finalTranscriptRef.current = '';
+    interimTranscriptRef.current = '';
+    historicalTranscriptRef.current = '';
+  };
+
+  const syncInputFromTranscripts = () => {
+    const fullText = (
+      historicalTranscriptRef.current + 
+      finalTranscriptRef.current + 
+      interimTranscriptRef.current
+    ).trimStart();
+    setInput(fullText);
+  };
+
+  const commitInterimTranscript = () => {
+    if (interimTranscriptRef.current) {
+      finalTranscriptRef.current += interimTranscriptRef.current;
+      interimTranscriptRef.current = '';
+    }
+  };
+
+  const clearRecognitionRestartTimer = () => {
+    if (recognitionRestartTimerRef.current !== null) {
+      window.clearTimeout(recognitionRestartTimerRef.current);
+      recognitionRestartTimerRef.current = null;
+    }
+  };
+
+  const clearNoSpeechWarningTimer = () => {
+    if (noSpeechWarningTimerRef.current !== null) {
+      window.clearTimeout(noSpeechWarningTimerRef.current);
+      noSpeechWarningTimerRef.current = null;
+    }
+  };
+
+  const scheduleNoSpeechWarning = () => {
+    clearNoSpeechWarningTimer();
+    noSpeechWarningTimerRef.current = window.setTimeout(() => {
+      noSpeechWarningTimerRef.current = null;
+      if (wantsListeningRef.current && !hasReceivedSpeechRef.current) {
+        showSttError('sttWaitingSpeech');
+      }
+    }, 6000);
+  };
+
+  const releaseMicrophone = () => {
+    micStreamRef.current?.getTracks().forEach((track) => track.stop());
+    micStreamRef.current = null;
+  };
+
+  const ensureMicrophoneReady = async (): Promise<boolean> => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      showSttError('sttErrorAudioCapture');
+      return false;
+    }
+
+    if (micStreamRef.current?.active) {
+      return true;
+    }
+
+    releaseMicrophone();
+
+    try {
+      micStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      return true;
+    } catch {
+      showSttError('sttErrorNotAllowed');
+      return false;
+    }
+  };
+
+  const scheduleRecognitionRestart = () => {
+    clearRecognitionRestartTimer();
+    recognitionRestartTimerRef.current = window.setTimeout(() => {
+      recognitionRestartTimerRef.current = null;
+      if (!wantsListeningRef.current || !recognitionRef.current) {
+        return;
+      }
+
+      try {
+        recognitionRef.current.start();
+      } catch {
+        wantsListeningRef.current = false;
+        setIsListening(false);
+      }
+    }, 300);
+  };
+
+  const showSttError = (key: TranslationKey | null) => {
+    if (sttErrorTimerRef.current !== null) {
+      window.clearTimeout(sttErrorTimerRef.current);
+      sttErrorTimerRef.current = null;
+    }
+
+    setSttErrorKey(key);
+
+    if (key) {
+      sttErrorTimerRef.current = window.setTimeout(() => {
+        setSttErrorKey(null);
+        sttErrorTimerRef.current = null;
+      }, 3000);
+    }
+  };
+
+  const stopListening = (options?: { showNoSpeechError?: boolean }) => {
+    const hadSpeech = hasReceivedSpeechRef.current;
+    const hasText = Boolean((finalTranscriptRef.current + interimTranscriptRef.current).trim());
+
+    wantsListeningRef.current = false;
+    clearRecognitionRestartTimer();
+    clearNoSpeechWarningTimer();
+    commitInterimTranscript();
+    syncInputFromTranscripts();
+
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+
+    setIsListening(false);
+    releaseMicrophone();
+
+    if (options?.showNoSpeechError && !hadSpeech && !hasText) {
+      showSttError('sttErrorNoSpeech');
+    }
+  };
 
   const scheduleCcClear = (delayMs: number) => {
     if (ccClearTimerRef.current !== null) {
@@ -91,45 +241,105 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       return;
     }
 
+    clearTranscriptBuffer();
+
     const recognition = new SpeechRecognitionApi();
     recognition.lang = speechRecognitionLang(locale);
     recognition.interimResults = true;
     recognition.continuous = true;
 
     recognition.onstart = () => {
+      hasReceivedSpeechRef.current = false;
       setIsListening(true);
+      showSttError(null);
+      scheduleNoSpeechWarning();
     };
 
     recognition.onend = () => {
       setIsListening(false);
+
+      if (!wantsListeningRef.current) {
+        return;
+      }
+
+      commitInterimTranscript();
+      historicalTranscriptRef.current += finalTranscriptRef.current;
+      finalTranscriptRef.current = '';
+      interimTranscriptRef.current = '';
+      syncInputFromTranscripts();
+      scheduleRecognitionRestart();
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
+      if (event.error === 'aborted') {
+        return;
+      }
+
+      clearRecognitionRestartTimer();
+
+      // Silence between phrases triggers no-speech often; restart quietly.
+      if (event.error === 'no-speech') {
+        if (wantsListeningRef.current) {
+          scheduleRecognitionRestart();
+        }
+        return;
+      }
+
+      const errorKey = STT_ERROR_KEYS[event.error];
+      if (errorKey) {
+        showSttError(errorKey);
+      }
+
+      wantsListeningRef.current = false;
       setIsListening(false);
+      releaseMicrophone();
     };
 
     recognition.onresult = (event: SpeechRecognitionEventLike) => {
-      let transcript = '';
-      for (let i = 0; i < event.results.length; i += 1) {
-        transcript += event.results[i][0]?.transcript ?? '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        const piece = result[0]?.transcript ?? '';
+
+        if (result.isFinal) {
+          finalTranscriptRef.current += piece;
+        }
       }
-      setInput(transcript.trimStart());
+
+      let interim = '';
+      for (let i = 0; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        if (!result.isFinal) {
+          interim += result[0]?.transcript ?? '';
+        }
+      }
+      interimTranscriptRef.current = interim;
+
+      if ((finalTranscriptRef.current + interimTranscriptRef.current).trim()) {
+        hasReceivedSpeechRef.current = true;
+        clearNoSpeechWarningTimer();
+        showSttError(null);
+      }
+
+      syncInputFromTranscripts();
     };
 
     recognitionRef.current = recognition;
     setIsSpeechSupported(true);
 
     return () => {
+      wantsListeningRef.current = false;
+      clearRecognitionRestartTimer();
+      clearNoSpeechWarningTimer();
       recognition.stop();
       recognitionRef.current = null;
+      releaseMicrophone();
     };
   }, [locale]);
 
   useEffect(() => {
-    if (!isTyping || !isListening || !recognitionRef.current) return;
-
-    recognitionRef.current.stop();
-    setIsListening(false);
+    if (isTyping && isListening) {
+      stopListening();
+    }
   }, [isTyping, isListening]);
   
   // Show latest message (user or ai) as CC
@@ -157,19 +367,58 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     e.preventDefault();
     if (isOverLimit) return;
     if (!input.trim()) return;
-    onSendMessage(input);
+
+    if (isListening) {
+      stopListening();
+    }
+
+    onSendMessage(input.trim());
+    clearTranscriptBuffer();
     setInput('');
   };
 
-  const handleToggleListening = () => {
+  const handleToggleListening = async () => {
     if (!recognitionRef.current || !isSpeechSupported || isTyping) return;
 
     if (isListening) {
-      recognitionRef.current.stop();
+      stopListening({ showNoSpeechError: true });
       return;
     }
 
-    recognitionRef.current.start();
+    const micReady = await ensureMicrophoneReady();
+    if (!micReady) {
+      return;
+    }
+
+    clearTranscriptBuffer();
+    setInput('');
+    hasReceivedSpeechRef.current = false;
+    wantsListeningRef.current = true;
+    showSttError(null);
+
+    try {
+      recognitionRef.current.start();
+      setIsListening(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message.includes('already started')) {
+        setIsListening(true);
+        return;
+      }
+
+      wantsListeningRef.current = false;
+      releaseMicrophone();
+      showSttError('sttErrorAudioCapture');
+    }
+  };
+
+  const handleInputChange = (value: string) => {
+    setInput(value);
+    if (!isListening) {
+      historicalTranscriptRef.current = value;
+      finalTranscriptRef.current = '';
+      interimTranscriptRef.current = '';
+    }
   };
 
   const handleStopTts = () => {
@@ -224,18 +473,40 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(nextText);
-      utterance.lang = speechSynthesisLang(locale);
+
+      const utterance =
+        new SpeechSynthesisUtterance(nextText);
+
+      utterance.lang =
+        speechSynthesisLang(locale);
+
       utterance.rate = 2;
+
+      window.postMessage({
+        type: 'ROBOT_TTS_STARTED'
+      });
+
       utterance.onend = () => {
-        // Keep subtitles briefly after speech ends for readability.
         scheduleCcClear(2500);
+
+        window.postMessage({
+          type: 'ROBOT_TTS_FINISHED'
+        });
       };
+
       utterance.onerror = () => {
         scheduleCcClear(2500);
+
+        window.postMessage({
+          type: 'ROBOT_TTS_FINISHED'
+        });
       };
+
       window.speechSynthesis.speak(utterance);
-      lastSpokenAiCountRef.current = aiMessageCount;
+
+      lastSpokenAiCountRef.current =
+        aiMessageCount;
+
       return;
     }
 
@@ -257,6 +528,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       if (ttsFinishTimerRef.current !== null) {
         window.clearTimeout(ttsFinishTimerRef.current);
       }
+      if (sttErrorTimerRef.current !== null) {
+        window.clearTimeout(sttErrorTimerRef.current);
+      }
+      clearRecognitionRestartTimer();
+      clearNoSpeechWarningTimer();
+      wantsListeningRef.current = false;
+      releaseMicrophone();
       handleStopTts();
     };
   }, []);
@@ -372,7 +650,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
                   <input
                     type="text"
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => handleInputChange(e.target.value)}
                     placeholder={isListening ? t('inputListening') : t('inputPlaceholder')}
                     className={`w-full bg-white/5 border py-1.5 pl-4 pr-40 text-sm focus:outline-none transition-all placeholder:text-white/20 backdrop-blur-sm ${
                       isListening ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)] bg-red-500/5' : 'border-white/10 focus:border-white/40 focus:bg-white/10'
@@ -390,9 +668,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
                     <Send size={16} />
                   </button>
                 </form>
+                {sttErrorKey && (
+                  <p
+                    className={`mt-1 text-center text-[10px] leading-snug ${
+                      sttErrorKey === 'sttWaitingSpeech' ? 'text-amber-300' : 'text-red-400'
+                    }`}
+                  >
+                    {t(sttErrorKey)}
+                  </p>
+                )}
               </div>
 
-              {isSpeechSupported && (
+              {isSpeechSupported ? (
                 <button
                   type="button"
                   onClick={handleToggleListening}
@@ -406,6 +693,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
                 >
                   {isListening ? <Mic size={16} /> : <MicOff size={16} />}
                 </button>
+              ) : (
+                <span className="max-w-[7rem] text-[10px] uppercase leading-tight tracking-wider text-white/40">
+                  {t('sttUnsupported')}
+                </span>
               )}
             </div>
 

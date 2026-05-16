@@ -15,7 +15,13 @@ export type TranslationKey =
   | 'stopRecording'
   | 'voiceInput'
   | 'noLabelsYet'
-  | 'stopTts';
+  | 'stopTts'
+  | 'sttUnsupported'
+  | 'sttErrorNotAllowed'
+  | 'sttErrorNoSpeech'
+  | 'sttErrorAudioCapture'
+  | 'sttErrorNetwork'
+  | 'sttWaitingSpeech';
 
 const zhHK = {
   languageToggle: 'EN',
@@ -33,6 +39,12 @@ const zhHK = {
   voiceInput: '語音輸入',
   noLabelsYet: '尚未評判。開口啦，人類。',
   stopTts: '停止語音',
+  sttUnsupported: '語音輸入需 Chrome 或 Edge',
+  sttErrorNotAllowed: '請允許麥克風權限',
+  sttErrorNoSpeech: '聽不到聲音，請檢查麥克風音量後再試',
+  sttErrorAudioCapture: '找不到麥克風裝置',
+  sttErrorNetwork: '語音辨識需要網絡連線',
+  sttWaitingSpeech: '請對住麥克風講話（可檢查系統音量）',
 } as const satisfies Record<TranslationKey, string>;
 
 const en = {
@@ -51,6 +63,12 @@ const en = {
   voiceInput: 'Voice input',
   noLabelsYet: 'No labels assigned yet. Speak, human.',
   stopTts: 'Stop speech',
+  sttUnsupported: 'Voice input requires Chrome or Edge',
+  sttErrorNotAllowed: 'Please allow microphone access',
+  sttErrorNoSpeech: 'No speech detected. Check mic volume and try again',
+  sttErrorAudioCapture: 'No microphone found',
+  sttErrorNetwork: 'Speech recognition requires a network connection',
+  sttWaitingSpeech: 'Speak into the microphone (check system volume)',
 } as const satisfies Record<TranslationKey, string>;
 
 export const translations: Record<AppLocale, Record<TranslationKey, string>> = {
