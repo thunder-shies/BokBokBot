@@ -92,9 +92,8 @@ export const WebcamPreview: React.FC<WebcamPreviewProps> = ({ broadcastEvent }) 
       try {
         if (broadcastEvent) {
           broadcastEvent(payload);
-        } else {
-          window.postMessage(payload, '*');
         }
+        window.postMessage(payload, '*');
       } catch (e) {
         // ignore
       }

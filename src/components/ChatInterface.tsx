@@ -159,7 +159,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     try {
       const payload = { type: 'ROBOT_USER_INPUT', text: input };
       if (broadcastEvent) broadcastEvent(payload);
-      else window.postMessage(payload, '*');
+      window.postMessage(payload, '*');
     } catch (e) {
       // ignore
     }
@@ -235,7 +235,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       try {
         const payload = { type: 'ROBOT_TTS_STARTED', text: nextText };
         if (broadcastEvent) broadcastEvent(payload);
-        else window.postMessage(payload, '*');
+        window.postMessage(payload, '*');
       } catch (e) {}
       utterance.onend = () => {
         // Keep subtitles briefly after speech ends for readability.
@@ -243,7 +243,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
         try {
           const payload = { type: 'ROBOT_TTS_FINISHED', text: nextText };
           if (broadcastEvent) broadcastEvent(payload);
-          else window.postMessage(payload, '*');
+          window.postMessage(payload, '*');
         } catch (e) {}
       };
       utterance.onerror = () => {
@@ -251,7 +251,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
         try {
           const payload = { type: 'ROBOT_TTS_FINISHED', text: nextText };
           if (broadcastEvent) broadcastEvent(payload);
-          else window.postMessage(payload, '*');
+          window.postMessage(payload, '*');
         } catch (e) {}
       };
       window.speechSynthesis.speak(utterance);
@@ -269,7 +269,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       try {
         const payload = { type: 'ROBOT_TTS_FINISHED', text: nextText };
         if (broadcastEvent) broadcastEvent(payload);
-        else window.postMessage(payload, '*');
+        window.postMessage(payload, '*');
       } catch (e) {}
       ttsFinishTimerRef.current = null;
     }, 3500);

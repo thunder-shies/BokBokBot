@@ -46,7 +46,7 @@ export const RobotBackground: React.FC = () => {
 
     const handleEnded = () => {
       // If we're alternating reply loop (appear <-> reply), toggle between them
-      if (loopTypeRef.current === 'reply') {
+      if (loopTypeRef.current === 'reply' && !pendingModeRef.current) {
         // If last played was appear, play reply; otherwise play appear.
         if (lastPlayedRef.current === 'appear') {
           setMode('replyLoop');
@@ -94,11 +94,12 @@ export const RobotBackground: React.FC = () => {
         if (mode === 'talk') return;
 
         // If already in the correct loop, do nothing
-        if ((isDetected && mode === 'stareLoop') || (!isDetected && mode === 'replyLoop')) {
+        if ((isDetected && loopTypeRef.current === 'stare') || (!isDetected && loopTypeRef.current === 'reply')) {
           return;
         }
 
         // Play appear then chosen loop
+        loopTypeRef.current = isDetected ? 'stare' : 'reply';
         pendingModeRef.current = isDetected ? 'stareLoop' : 'replyLoop';
         setMode('appear');
         playWithTag(appearSrc, false, 'appear');
@@ -115,6 +116,7 @@ export const RobotBackground: React.FC = () => {
         // return to appropriate loop based on last detection
         const next = detectedRef.current ? 'stareLoop' : 'replyLoop';
         if (next === 'stareLoop') {
+          pendingModeRef.current = 'stareLoop';
           setMode('stareLoop');
           loopTypeRef.current = 'stare';
           playWithTag(stareSrc, true, 'stare');
