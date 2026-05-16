@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { RobotBackground } from './RobotBackground';
 
 interface Message {
   role: 'user' | 'ai';
@@ -8,46 +9,78 @@ interface Message {
 
 export const ProjectionWindow: React.FC = () => {
   const [currentCC, setCurrentCC] = useState<{ text: string; role: 'user' | 'ai' } | null>(null);
+  const [projectionClosable, setProjectionClosable] = useState<boolean>(true);
+  const suppressUntilRef = useRef<number | null>(null);
 
   useEffect(() => {
     console.log('[ProjectionWindow] Initialized and listening for messages');
     
     const handleMessage = (event: MessageEvent) => {
-      console.log('[ProjectionWindow] Received message:', event.data);
-      
-      // Only accept messages from same origin
-      if (event.origin !== window.location.origin) {
-        console.warn('[ProjectionWindow] Message rejected - wrong origin:', event.origin);
-        return;
-      }
+        console.log('[ProjectionWindow] Received message:', event.data);
+        const data = event.data || {};
+        if (data.type === 'UPDATE_CAPTION') {
+          // Ignore caption updates if we've just received a TTS_FINISHED (short suppression window)
+          const now = Date.now();
+          if (suppressUntilRef.current && now < suppressUntilRef.current) {
+            console.log('[ProjectionWindow] Suppressing caption update due to recent TTS finish');
+          } else {
+            console.log('[ProjectionWindow] Updating caption:', data.text);
+            if (data.text === null || data.text === undefined) {
+              setCurrentCC(null);
+            } else {
+              setCurrentCC({ text: data.text, role: data.role });
+            }
+          }
+        }
 
-      if (event.data.type === 'UPDATE_CAPTION') {
-        console.log('[ProjectionWindow] Updating caption:', event.data.text);
-        setCurrentCC({
-          text: event.data.text,
-          role: event.data.role,
-        });
-      }
+        // Clear CC when TTS finishes and suppress immediate caption updates
+        if (data.type === 'ROBOT_TTS_FINISHED') {
+          console.log('[ProjectionWindow] TTS finished, clearing CC and suppressing new captions');
+          setCurrentCC(null);
+          // Suppress captions for the next 1s to avoid immediate re-posting
+          suppressUntilRef.current = Date.now() + 1000;
+          // Clear suppression after timeout
+          window.setTimeout(() => {
+            suppressUntilRef.current = null;
+          }, 1000);
+        }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  // Fetch backend config to determine whether projection can be closed
+  useEffect(() => {
+    let isCancelled = false;
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((data) => {
+        if (!isCancelled && data && typeof data.projection_closable === 'boolean') {
+          setProjectionClosable(Boolean(data.projection_closable));
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
   return (
     <div className="w-full h-screen bg-black text-white font-mono overflow-hidden flex flex-col">
       {/* Robot Video Background */}
-      <div className="absolute inset-0 z-0">
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/40 z-10" />
-        <img
-          src="src/assets/images/ChatGPT Image 2026-5-8 01_58_57__edited.png"
-          alt="Robot Staring"
-          referrerPolicy="no-referrer"
-          className="w-full h-full object-cover brightness-75 contrast-110"
-        />
-        {/* CRT Scanline Overlay */}
-        <div className="absolute inset-0 pointer-events-none z-20 opacity-20 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%]" />
-      </div>
+      <RobotBackground />
+
+      {/* Close button (if allowed by server config) */}
+      {projectionClosable && (
+        <button
+          onClick={() => window.close()}
+          className="absolute top-4 right-4 z-40 bg-black/60 text-white px-3 py-1 rounded-md"
+        >
+          Close Projection
+        </button>
+      )}
 
       {/* Header Label */}
       <div className="absolute top-4 left-4 z-30 flex items-center gap-2">

@@ -30,3 +30,10 @@ app.include_router(vision.router, prefix="/api/vision", tags=["vision"])
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "provider": settings.llm_provider}
+
+
+@app.get("/api/config")
+async def get_config() -> dict:
+    return {
+        "projection_closable": settings.projection_closable,
+    }

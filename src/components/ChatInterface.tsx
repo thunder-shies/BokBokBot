@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Terminal, Settings, Maximize, Volume2, VolumeX, Pause, Captions, Mic, MicOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { RobotBackground } from './RobotBackground';
+import { WalkingChibis } from './WalkingChibis';
 
 interface Message {
   role: 'user' | 'ai';
@@ -11,7 +13,8 @@ interface ChatInterfaceProps {
   onSendMessage: (msg: string) => void;
   messages: Message[];
   isTyping: boolean;
-  broadcastCaption?: (text: string, role: 'user' | 'ai') => void;
+  broadcastCaption?: (text: string | null, role?: 'user' | 'ai') => void;
+  broadcastEvent?: (payload: any) => void;
 }
 
 interface SpeechRecognitionAlternativeLike {
@@ -49,7 +52,7 @@ declare global {
 
 const MAX_INPUT_LENGTH = 100;
 
-export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, messages, isTyping, broadcastCaption }) => {
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, messages, isTyping, broadcastCaption, broadcastEvent }) => {
   const [input, setInput] = useState('');
   const [currentCC, setCurrentCC] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
@@ -60,6 +63,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
   const lastSpokenAiCountRef = useRef<number>(0);
   const volumeResetTimerRef = useRef<number | null>(null);
   const ccClearTimerRef = useRef<number | null>(null);
+  const ttsFinishTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const isOverLimit = input.length > MAX_INPUT_LENGTH;
 
   const scheduleCcClear = (delayMs: number) => {
@@ -69,6 +73,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
 
     ccClearTimerRef.current = window.setTimeout(() => {
       setCurrentCC(null);
+      if (broadcastCaption) {
+        broadcastCaption(null);
+      }
       ccClearTimerRef.current = null;
     }, delayMs);
   };
@@ -138,6 +145,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       }
     } else {
       setCurrentCC(null);
+      if (broadcastCaption) {
+        broadcastCaption(null);
+      }
     }
   }, [messages, broadcastCaption]);
 
@@ -146,6 +156,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     if (isOverLimit) return;
     if (!input.trim()) return;
     onSendMessage(input);
+    try {
+      const payload = { type: 'ROBOT_USER_INPUT', text: input };
+      if (broadcastEvent) broadcastEvent(payload);
+      else window.postMessage(payload, '*');
+    } catch (e) {
+      // ignore
+    }
     setInput('');
   };
 
@@ -215,22 +232,51 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       const utterance = new SpeechSynthesisUtterance(nextText);
       utterance.lang = 'zh-HK';
       utterance.rate = 2;
+      try {
+        const payload = { type: 'ROBOT_TTS_STARTED', text: nextText };
+        if (broadcastEvent) broadcastEvent(payload);
+        else window.postMessage(payload, '*');
+      } catch (e) {}
       utterance.onend = () => {
         // Keep subtitles briefly after speech ends for readability.
         scheduleCcClear(2500);
+        try {
+          const payload = { type: 'ROBOT_TTS_FINISHED', text: nextText };
+          if (broadcastEvent) broadcastEvent(payload);
+          else window.postMessage(payload, '*');
+        } catch (e) {}
       };
       utterance.onerror = () => {
         scheduleCcClear(2500);
+        try {
+          const payload = { type: 'ROBOT_TTS_FINISHED', text: nextText };
+          if (broadcastEvent) broadcastEvent(payload);
+          else window.postMessage(payload, '*');
+        } catch (e) {}
       };
       window.speechSynthesis.speak(utterance);
       lastSpokenAiCountRef.current = aiMessageCount;
       return;
     }
 
-    // If TTS is unavailable, still auto-hide the CC after a short delay.
+    // If TTS is unavailable, still auto-hide the CC after a short delay and notify finish.
     scheduleCcClear(3500);
+    if (ttsFinishTimerRef.current !== null) {
+      globalThis.clearTimeout(ttsFinishTimerRef.current);
+      ttsFinishTimerRef.current = null;
+    }
+    ttsFinishTimerRef.current = globalThis.setTimeout(() => {
+      try {
+        const payload = { type: 'ROBOT_TTS_FINISHED', text: nextText };
+        if (broadcastEvent) broadcastEvent(payload);
+        else window.postMessage(payload, '*');
+      } catch (e) {}
+      ttsFinishTimerRef.current = null;
+    }, 3500);
     lastSpokenAiCountRef.current = aiMessageCount;
   }, [messages, isTyping]);
+
+  
 
   useEffect(() => {
     return () => {
@@ -240,24 +286,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       if (ccClearTimerRef.current !== null) {
         window.clearTimeout(ccClearTimerRef.current);
       }
+      if (ttsFinishTimerRef.current !== null) {
+        window.clearTimeout(ttsFinishTimerRef.current);
+      }
       handleStopTts();
     };
   }, []);
 
   return (
     <div className="flex flex-col h-full border border-white/10 bg-black relative group overflow-hidden">
-      {/* Robot Video Background (Simulated) */}
-      <div className="absolute inset-0 z-0">
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/40 z-10" />
-        <img 
-          src="src/assets/images/ChatGPT Image 2026-5-8 01_58_57__edited.png" 
-          alt="Robot Staring"
-          referrerPolicy="no-referrer"
-          className="w-full h-full object-cover brightness-75 contrast-110"
-        />
-        {/* CRT Scanline Overlay specifically for video area */}
-        <div className="absolute inset-0 pointer-events-none z-20 opacity-20 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%]" />
-      </div>
+      {/* Robot Video Background */}
+      <RobotBackground />
 
       {/* Video Overlay UI */}
       <div className="absolute top-4 left-4 z-30 flex items-center gap-2">
@@ -332,6 +371,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
           
           {/* Progress Bar (Purely Visual) */}
           <div className="h-[2px] bg-white/10 w-full relative mb-1">
+            <WalkingChibis />
             <div className="absolute top-0 left-0 h-full bg-red-600 w-full" />
           </div>
 

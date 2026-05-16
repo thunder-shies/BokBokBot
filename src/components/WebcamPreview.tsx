@@ -7,7 +7,11 @@ interface PersonDetectionResponse {
   confidence: number;
 }
 
-export const WebcamPreview: React.FC = () => {
+interface WebcamPreviewProps {
+  broadcastEvent?: (payload: any) => void;
+}
+
+export const WebcamPreview: React.FC<WebcamPreviewProps> = ({ broadcastEvent }) => {
   const webcamRef = useRef<Webcam | null>(null);
   const [detection, setDetection] = useState<PersonDetectionResponse>({
     detected: false,
@@ -68,6 +72,45 @@ export const WebcamPreview: React.FC = () => {
       window.clearInterval(timer);
     };
   }, []);
+
+  // Post vision events with a small hysteresis to avoid flicker when detections fluctuate.
+  const lastPostedDetectedRef = useRef<boolean | null>(null);
+  const hysteresisTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const hysteresisMs = 800;
+    if (detection.detected === lastPostedDetectedRef.current) return;
+
+    if (hysteresisTimerRef.current !== null) {
+      window.clearTimeout(hysteresisTimerRef.current);
+      hysteresisTimerRef.current = null;
+    }
+
+    hysteresisTimerRef.current = window.setTimeout(() => {
+      lastPostedDetectedRef.current = detection.detected;
+      const payload = { type: 'VISION', payload: { detected: detection.detected, count: detection.count, confidence: detection.confidence } };
+      try {
+        if (broadcastEvent) {
+          broadcastEvent(payload);
+        } else {
+          window.postMessage(payload, '*');
+        }
+      } catch (e) {
+        // ignore
+      }
+      if (hysteresisTimerRef.current !== null) {
+        window.clearTimeout(hysteresisTimerRef.current);
+        hysteresisTimerRef.current = null;
+      }
+    }, hysteresisMs);
+
+    return () => {
+      if (hysteresisTimerRef.current !== null) {
+        window.clearTimeout(hysteresisTimerRef.current);
+        hysteresisTimerRef.current = null;
+      }
+    };
+  }, [detection]);
 
   return (
     <div className="relative w-full aspect-video border border-white/20 bg-black overflow-hidden group">

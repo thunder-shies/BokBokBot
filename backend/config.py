@@ -26,6 +26,7 @@ class Settings:
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.1")
     cors_origins: str = os.getenv("CORS_ORIGINS", "*")
     vision_confidence_threshold: float = float(os.getenv("VISION_CONFIDENCE_THRESHOLD", "0.45"))
+    projection_closable: bool = os.getenv("PROJECTION_CLOSABLE", "false").strip().lower() in {"1", "true", "yes", "on"}
 
     @property
     def cors_origins_list(self) -> list[str]:

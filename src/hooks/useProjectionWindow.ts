@@ -49,28 +49,60 @@ export const useProjectionWindow = () => {
     };
   }, [openProjectionWindow]);
 
-  const broadcastCaption = useCallback((text: string, role: 'user' | 'ai') => {
+  const broadcastCaption = useCallback((text: string | null, role?: 'user' | 'ai') => {
+    const payload = { type: 'UPDATE_CAPTION', text, role };
     if (!projectionWindowRef.current || projectionWindowRef.current.closed) {
       if (!openAttemptedRef.current) {
         openProjectionWindow();
       }
+      // Try again shortly after opening to avoid losing the first caption
+      window.setTimeout(() => {
+        try {
+          if (projectionWindowRef.current && !projectionWindowRef.current.closed) {
+            projectionWindowRef.current.postMessage(payload, window.location.origin);
+            console.log('[ProjectionWindow] Caption broadcast sent (delayed)');
+          }
+        } catch (error) {
+          console.warn('[ProjectionWindow] Failed to send delayed caption:', error);
+        }
+      }, 300);
       return;
     }
 
     try {
-      projectionWindowRef.current.postMessage(
-        {
-          type: 'UPDATE_CAPTION',
-          text,
-          role,
-        },
-        window.location.origin
-      );
+      projectionWindowRef.current.postMessage(payload, window.location.origin);
       console.log('[ProjectionWindow] Caption broadcast sent');
     } catch (error) {
       console.warn('[ProjectionWindow] Failed to send caption:', error);
     }
   }, [openProjectionWindow]);
 
-  return { broadcastCaption };
+  const broadcastEvent = useCallback((payload: any) => {
+    if (!projectionWindowRef.current || projectionWindowRef.current.closed) {
+      if (!openAttemptedRef.current) {
+        openProjectionWindow();
+      }
+      // Post after a short delay to give the new window a moment to initialize
+      window.setTimeout(() => {
+        try {
+          if (projectionWindowRef.current && !projectionWindowRef.current.closed) {
+            projectionWindowRef.current.postMessage(payload, window.location.origin);
+            console.log('[ProjectionWindow] Event broadcast sent (delayed)', payload.type);
+          }
+        } catch (error) {
+          console.warn('[ProjectionWindow] Failed to send delayed event:', error);
+        }
+      }, 300);
+      return;
+    }
+
+    try {
+      projectionWindowRef.current.postMessage(payload, window.location.origin);
+      console.log('[ProjectionWindow] Event broadcast sent', payload.type);
+    } catch (error) {
+      console.warn('[ProjectionWindow] Failed to send event:', error);
+    }
+  }, [openProjectionWindow]);
+
+  return { broadcastCaption, broadcastEvent };
 };
