@@ -1,5 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
+import { useLanguage } from '../i18n';
 
 interface MetricProps {
   label: string;
@@ -34,6 +35,8 @@ interface StatusLabelsProps {
 }
 
 export const StatusLabels: React.FC<StatusLabelsProps> = ({ metrics, labels }) => {
+  const { t } = useLanguage();
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4">
@@ -56,7 +59,7 @@ export const StatusLabels: React.FC<StatusLabelsProps> = ({ metrics, labels }) =
             </motion.span>
           ))}
           {labels.length === 0 && (
-            <span className="text-md text-white/50 italic">No labels assigned yet. Speak, human.</span>
+            <span className="text-md text-white/50 italic">{t('noLabelsYet')}</span>
           )}
         </div>
       </div>

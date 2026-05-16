@@ -8,4 +8,4 @@ router = APIRouter()
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
-    return await llm_service.generate_response(payload.user_input)
+    return await llm_service.generate_response(payload.user_input, payload.locale)

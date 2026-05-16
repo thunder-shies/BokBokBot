@@ -5,7 +5,8 @@ import { ChatInterface } from './components/ChatInterface';
 import { StatusLabels } from './components/StatusLabels';
 import { useProjectionWindow } from './hooks/useProjectionWindow';
 import { getMeanResponse } from './services/chatApi';
-import { Eye, Activity, ShieldAlert, Cpu } from 'lucide-react';
+import { useLanguage } from './i18n';
+import { Eye, Activity, ShieldAlert, Cpu, Languages } from 'lucide-react';
 
 type ChatMessage = {
   role: 'user' | 'ai';
@@ -13,6 +14,7 @@ type ChatMessage = {
 };
 
 export default function App() {
+  const { locale, toggleLocale, t } = useLanguage();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [metrics, setMetrics] = useState({ stupidity: 0.1, conformity: 0.1, polarization: 0.1 });
@@ -24,7 +26,7 @@ export default function App() {
     setMessages(prev => [...prev, { role: 'user', text }]);
     setIsTyping(true);
 
-    const result = await getMeanResponse(text);
+    const result = await getMeanResponse(text, locale);
     
     setMessages(prev => [...prev, { role: 'ai', text: result.response }]);
     setMetrics(result.metrics);
@@ -52,11 +54,22 @@ export default function App() {
           <div className="h-4 w-[1px] bg-white/20" />
           <div className="flex items-center gap-2 text-[10px] text-white/40 uppercase tracking-widest">
             <Activity size={12} className="animate-pulse" />
-            <span>System_Status: Hostile</span>
+            <span>{t('systemStatus')}</span>
           </div>
         </div>
-        <div className="text-[10px] text-white/40 uppercase tracking-widest">
-          Session_ID: {Math.random().toString(36).substring(7).toUpperCase()}
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={toggleLocale}
+            className="flex items-center gap-1.5 border border-white/20 px-2 py-1 text-[10px] uppercase tracking-widest text-white/70 transition-colors hover:border-white/50 hover:text-white"
+            title={locale === 'zh-HK' ? 'Switch to English' : '切換至繁體中文'}
+          >
+            <Languages size={12} />
+            <span>{t('languageToggle')}</span>
+          </button>
+          <div className="text-[10px] text-white/40 uppercase tracking-widest">
+            Session_ID: {Math.random().toString(36).substring(7).toUpperCase()}
+          </div>
         </div>
       </header>
 
@@ -68,7 +81,7 @@ export default function App() {
           <section className="space-y-2">
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-white/60 mb-2">
               <Eye size={12} />
-              <span>Visual_Input_Feed</span>
+              <span>{t('visualInputFeed')}</span>
             </div>
             <WebcamPreview broadcastEvent={broadcastEvent} />
           </section>
@@ -76,7 +89,7 @@ export default function App() {
           <section className="flex-1 border border-white/10 bg-black/40 backdrop-blur-sm p-6 space-y-6">
             <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-white/60 mb-4">
               <ShieldAlert size={12} />
-              <span>Judgment_Metrics</span>
+              <span>{t('judgmentMetrics')}</span>
             </div>
             <StatusLabels metrics={metrics} labels={labels} />
           </section>

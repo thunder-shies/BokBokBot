@@ -10,7 +10,8 @@ This app combines a stylized React interface with a FastAPI service that:
 
 - analyzes user prompts and returns an AI reply with three metrics
 - keeps the browser chat experience responsive even when a provider fails
-- supports microphone input and spoken output in the browser
+- supports microphone input and spoken output in the browser (Cantonese or English)
+- includes an in-app language toggle (繁 / EN) for UI, speech, and AI replies
 - detects whether a person appears in uploaded webcam frames
 
 ## Tech Stack
@@ -129,9 +130,12 @@ The Vite dev server proxies `/api/*` requests to `http://localhost:8001`.
 
 ```json
 {
-  "userInput": "你好"
+  "userInput": "你好",
+  "locale": "zh-HK"
 }
 ```
+
+`locale` accepts `zh-HK` (default) or `en`.
 
 - Response shape:
 

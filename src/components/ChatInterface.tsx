@@ -3,6 +3,7 @@ import { Send, Terminal, Settings, Maximize, Volume2, VolumeX, Pause, Captions, 
 import { motion, AnimatePresence } from 'motion/react';
 import { RobotBackground } from './RobotBackground';
 import { WalkingChibis } from './WalkingChibis';
+import { useLanguage, speechRecognitionLang, speechSynthesisLang } from '../i18n';
 
 interface Message {
   role: 'user' | 'ai';
@@ -53,6 +54,7 @@ declare global {
 const MAX_INPUT_LENGTH = 100;
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, messages, isTyping, broadcastCaption, broadcastEvent }) => {
+  const { locale, t } = useLanguage();
   const [input, setInput] = useState('');
   const [currentCC, setCurrentCC] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
@@ -90,7 +92,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     }
 
     const recognition = new SpeechRecognitionApi();
-    recognition.lang = 'zh-HK';
+    recognition.lang = speechRecognitionLang(locale);
     recognition.interimResults = true;
     recognition.continuous = true;
 
@@ -121,7 +123,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       recognition.stop();
       recognitionRef.current = null;
     };
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     if (!isTyping || !isListening || !recognitionRef.current) return;
@@ -223,7 +225,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(nextText);
-      utterance.lang = 'zh-HK';
+      utterance.lang = speechSynthesisLang(locale);
       utterance.rate = 2;
       utterance.onend = () => {
         // Keep subtitles briefly after speech ends for readability.
@@ -240,7 +242,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
     // If TTS is unavailable, still auto-hide the CC after a short delay and notify finish.
     scheduleCcClear(3500);
     lastSpokenAiCountRef.current = aiMessageCount;
-  }, [messages, isTyping]);
+  }, [messages, isTyping, locale]);
 
   
 
@@ -267,7 +269,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
       {/* Video Overlay UI */}
       <div className="absolute top-4 left-4 z-30 flex items-center gap-2">
         <Terminal size={14} className="text-white/60" />
-        <span className="text-[10px] uppercase tracking-[0.2em] text-white/60 font-bold">Live_Feed // BokBok_Bot</span>
+        <span className="text-[10px] uppercase tracking-[0.2em] text-white/60 font-bold">{t('liveFeed')}</span>
       </div>
 
 
@@ -294,7 +296,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
                 }}
               >
                 {messages[messages.length - 1]?.role === 'user' && (
-                  <span className="text-[8px] uppercase tracking-[0.4em] block mb-1 text-white/30">User_Input //</span>
+                  <span className="text-[8px] uppercase tracking-[0.4em] block mb-1 text-white/30">{t('userInput')}</span>
                 )}
                 {currentCC}
               </div>
@@ -306,7 +308,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
                   animate={{ opacity: 1 }}
                   className="bg-black/95 px-6 py-3 border border-white/20 flex items-center gap-3 rounded-sm backdrop-blur-xl shadow-2xl"
                 >
-                  <span className="text-xs uppercase tracking-[0.2em] font-bold text-white/80">BokBok 正在處理 //</span>
+                  <span className="text-xs uppercase tracking-[0.2em] font-bold text-white/80">{t('processing')}</span>
                   <div className="flex gap-1.5">
                     <span className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:-0.3s]" />
                     <span className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:-0.15s]" />
@@ -350,13 +352,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
               <button
                 className="hover:text-white transition-colors cursor-pointer p-1"
                 onClick={handleVolumeClick}
-                title="Stop TTS"
+                title={t('stopTts')}
               >
                 {showVolumeMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
               </button>
               <div className="bg-black/40 px-3 py-1 rounded-full flex items-center gap-2 border border-white/5 whitespace-nowrap">
                 <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(239,68,68,0.8)]" />
-                <span className="text-sm font-bold tracking-wider">直播中</span>
+                <span className="text-sm font-bold tracking-wider">{t('liveBadge')}</span>
               </div>
             </div>
 
@@ -371,7 +373,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder={isListening ? "Listening..." : "Start yapping..."}
+                    placeholder={isListening ? t('inputListening') : t('inputPlaceholder')}
                     className={`w-full bg-white/5 border py-1.5 pl-4 pr-40 text-sm focus:outline-none transition-all placeholder:text-white/20 backdrop-blur-sm ${
                       isListening ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)] bg-red-500/5' : 'border-white/10 focus:border-white/40 focus:bg-white/10'
                     }`}
@@ -384,7 +386,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
                     disabled={isTyping || !input.trim() || isOverLimit}
                     className="absolute right-0 top-0 flex h-full items-center gap-1 border-l border-white/20 bg-white/10 px-3 text-sm font-bold text-white whitespace-nowrap transition-colors hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
                   >
-                    <span>發佈</span>
+                    <span>{t('publish')}</span>
                     <Send size={16} />
                   </button>
                 </form>
@@ -399,7 +401,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
                       ? 'bg-red-600 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.5)]'
                       : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white'
                   }`}
-                  title={isListening ? '停止錄音' : '語音輸入'}
+                  title={isListening ? t('stopRecording') : t('voiceInput')}
                   disabled={isTyping}
                 >
                   {isListening ? <Mic size={16} /> : <MicOff size={16} />}

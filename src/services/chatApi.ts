@@ -1,3 +1,6 @@
+import type { AppLocale } from '../i18n';
+import { chatFallback } from '../i18n';
+
 export interface AIResponse {
   response: string;
   metrics: {
@@ -8,14 +11,17 @@ export interface AIResponse {
   labels: string[];
 }
 
-const FALLBACK_RESPONSE: AIResponse = {
-  response: "系統連線唔穩定，暫時用離線模式同你傾住先。",
-  metrics: { stupidity: 0.5, conformity: 0.5, polarization: 0.5 },
-  labels: ["離線模式", "降級回應"],
-};
+function buildFallbackResponse(locale: AppLocale): AIResponse {
+  const fallback = chatFallback[locale];
+  return {
+    response: fallback.response,
+    metrics: { stupidity: 0.5, conformity: 0.5, polarization: 0.5 },
+    labels: [...fallback.labels],
+  };
+}
 
-function normalizeMetrics(payload: Partial<AIResponse>): AIResponse["metrics"] {
-  const metrics = payload.metrics ?? FALLBACK_RESPONSE.metrics;
+function normalizeMetrics(payload: Partial<AIResponse>, locale: AppLocale): AIResponse["metrics"] {
+  const metrics = payload.metrics ?? buildFallbackResponse(locale).metrics;
   return {
     stupidity: Math.max(0, Math.min(1, Number(metrics.stupidity ?? 0.5))),
     conformity: Math.max(0, Math.min(1, Number(metrics.conformity ?? 0.5))),
@@ -23,21 +29,23 @@ function normalizeMetrics(payload: Partial<AIResponse>): AIResponse["metrics"] {
   };
 }
 
-function normalizeLabels(payload: Partial<AIResponse>): string[] {
+function normalizeLabels(payload: Partial<AIResponse>, locale: AppLocale): string[] {
   if (!Array.isArray(payload.labels) || payload.labels.length === 0) {
-    return FALLBACK_RESPONSE.labels;
+    return buildFallbackResponse(locale).labels;
   }
   return payload.labels.map((item) => String(item)).filter(Boolean).slice(0, 3);
 }
 
-export async function getMeanResponse(userInput: string): Promise<AIResponse> {
+export async function getMeanResponse(userInput: string, locale: AppLocale = 'zh-HK'): Promise<AIResponse> {
+  const fallbackResponse = buildFallbackResponse(locale);
+
   try {
     const response = await fetch('/api/chat/analyze', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ userInput }),
+      body: JSON.stringify({ userInput, locale }),
     });
 
     if (!response.ok) {
@@ -52,11 +60,11 @@ export async function getMeanResponse(userInput: string): Promise<AIResponse> {
 
     return {
       response: responseText,
-      metrics: normalizeMetrics(payload),
-      labels: normalizeLabels(payload),
+      metrics: normalizeMetrics(payload, locale),
+      labels: normalizeLabels(payload, locale),
     };
   } catch (error) {
     console.error('AI Error:', error);
-    return FALLBACK_RESPONSE;
+    return fallbackResponse;
   }
 }

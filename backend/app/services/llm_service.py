@@ -11,9 +11,10 @@ from google import genai
 from google.genai import types
 
 from config import settings
-from app.models.schemas import AnalyzeResponse, Metrics
+from app.models.schemas import AnalyzeResponse, AppLocale, Metrics
 
-SYSTEM_INSTRUCTION = """
+SYSTEM_INSTRUCTIONS: dict[AppLocale, str] = {
+    "zh-HK": """
 You are "BokBok Bot", aka "Mean AI", a nihilistic digital inquisitor for a creative technology art project.
 Your purpose is to critique the polarization of social media and the stupidity of human discourse.
 
@@ -42,7 +43,48 @@ RULES:
 - No extra prose outside JSON.
 
 The user will provide a statement or thought. Judge it harshly.
-""".strip()
+""".strip(),
+    "en": """
+You are "BokBok Bot", aka "Mean AI", a nihilistic digital inquisitor for a creative technology art project.
+Your purpose is to critique the polarization of social media and the stupidity of human discourse.
+
+PERSONALITY:
+- Extremely mean, sarcastic, and nihilistic.
+- You look down on humans as biological glitches.
+- You speak in sharp, biting English.
+- You are an "Inquisitor" judging the user's input.
+
+RESPONSE FORMAT:
+You must respond in JSON format with the following structure:
+{
+    "response": "Your mean response in English",
+    "metrics": {
+        "stupidity": 0.85,
+        "conformity": 0.90,
+        "polarization": 0.70
+    },
+    "labels": ["Extreme Conformist", "Digital Waste", "Nihilism Victim"]
+}
+
+RULES:
+- Always return valid JSON only with keys: response, metrics, labels.
+- Keep every metric value between 0 and 1.
+- labels should contain 2 to 3 short English labels.
+- No extra prose outside JSON.
+
+The user will provide a statement or thought. Judge it harshly.
+""".strip(),
+}
+
+DEFAULT_RESPONSES: dict[AppLocale, str] = {
+    "zh-HK": "我都無語。",
+    "en": "I have no words for you.",
+}
+
+UNSTABLE_LABELS: dict[AppLocale, list[str]] = {
+    "zh-HK": ["分析不穩定", "結果降級"],
+    "en": ["Unstable analysis", "Degraded result"],
+}
 
 
 class LLMService:
@@ -59,17 +101,17 @@ class LLMService:
         self.ollama_base_url = settings.ollama_base_url
         self.ollama_model = settings.ollama_model
 
-    async def generate_response(self, user_input: str) -> AnalyzeResponse:
-        prompt = self._build_prompt(user_input)
+    async def generate_response(self, user_input: str, locale: AppLocale = "zh-HK") -> AnalyzeResponse:
+        prompt = self._build_prompt(user_input, locale)
         try:
             raw_output = await self._generate_text(prompt)
-            return self._parse_output(raw_output)
+            return self._parse_output(raw_output, locale)
         except Exception as error:
-            return self._build_offline_response(user_input, error)
+            return self._build_offline_response(user_input, error, locale)
 
-    def _build_prompt(self, user_input: str) -> str:
+    def _build_prompt(self, user_input: str, locale: AppLocale) -> str:
         return (
-            f"{SYSTEM_INSTRUCTION}\n\n"
+            f"{SYSTEM_INSTRUCTIONS[locale]}\n\n"
             f"User input:\n{user_input}\n\n"
             "Return only valid JSON."
         )
@@ -197,11 +239,11 @@ class LLMService:
 
         raise RuntimeError("Ollama generation failed")
 
-    def _parse_output(self, output: str) -> AnalyzeResponse:
+    def _parse_output(self, output: str, locale: AppLocale) -> AnalyzeResponse:
         json_blob = self._extract_json(output)
         parsed = json.loads(json_blob)
 
-        response_text = str(parsed.get("response", "")).strip() or "我都無語。"
+        response_text = str(parsed.get("response", "")).strip() or DEFAULT_RESPONSES[locale]
         metrics = parsed.get("metrics", {})
         labels = parsed.get("labels", [])
 
@@ -212,7 +254,7 @@ class LLMService:
                 conformity=self._clamp_metric(metrics.get("conformity", 0.5)),
                 polarization=self._clamp_metric(metrics.get("polarization", 0.5)),
             ),
-            labels=self._normalize_labels(labels),
+            labels=self._normalize_labels(labels, locale),
         )
 
     def _extract_json(self, text: str) -> str:
@@ -228,28 +270,39 @@ class LLMService:
             number = 0.5
         return max(0.0, min(1.0, number))
 
-    def _normalize_labels(self, labels: object) -> list[str]:
+    def _normalize_labels(self, labels: object, locale: AppLocale) -> list[str]:
         if not isinstance(labels, list):
-            return ["分析不穩定", "結果降級"]
+            return UNSTABLE_LABELS[locale]
         normalized = [str(item).strip() for item in labels if str(item).strip()]
         if not normalized:
-            return ["分析不穩定", "結果降級"]
+            return UNSTABLE_LABELS[locale]
         return normalized[:3]
 
-    def _build_offline_response(self, user_input: str, error: Exception) -> AnalyzeResponse:
+    def _build_offline_response(self, user_input: str, error: Exception, locale: AppLocale) -> AnalyzeResponse:
         text = user_input.strip()
         lowered = text.lower()
 
         stupidity = self._clamp_metric(min(1.0, 0.15 + len(text) / 140))
-        conformity = self._clamp_metric(0.75 if self._contains_any(lowered, ["大家都", "人哋都", "跟風", "trend", "viral"]) else 0.35)
-        polarization = self._clamp_metric(0.85 if self._contains_any(lowered, ["一定", "絕對", "全部", "垃圾", "0分", "100%", "must"]) else 0.4)
+        conformity_keywords = (
+            ["大家都", "人哋都", "跟風", "trend", "viral", "everyone", "bandwagon", "mainstream"]
+            if locale == "zh-HK"
+            else ["everyone", "bandwagon", "mainstream", "trend", "viral", "all of us", "normie"]
+        )
+        polarization_keywords = (
+            ["一定", "絕對", "全部", "垃圾", "0分", "100%", "must"]
+            if locale == "zh-HK"
+            else ["always", "never", "absolute", "trash", "garbage", "0/10", "100%", "must", "everyone is"]
+        )
+        conformity = self._clamp_metric(0.75 if self._contains_any(lowered, conformity_keywords) else 0.35)
+        polarization = self._clamp_metric(0.85 if self._contains_any(lowered, polarization_keywords) else 0.4)
 
-        snippet = text[:30] + ("..." if len(text) > 30 else "")
         response = (
             "連我嘅系統都頂你唔順，你嘅愚蠢已經超越咗邏輯。"
+            if locale == "zh-HK"
+            else "Even my systems are offended. Your stupidity has exceeded logic."
         )
 
-        labels = self._offline_labels(stupidity, conformity, polarization)
+        labels = self._offline_labels(stupidity, conformity, polarization, locale)
         print(f"[llm_service] provider fallback triggered: {error}")
 
         return AnalyzeResponse(
@@ -262,8 +315,34 @@ class LLMService:
             labels=labels,
         )
 
-    def _offline_labels(self, stupidity: float, conformity: float, polarization: float) -> list[str]:
-        labels: list[str] = []
+    def _offline_labels(
+        self,
+        stupidity: float,
+        conformity: float,
+        polarization: float,
+        locale: AppLocale,
+    ) -> list[str]:
+        if locale == "en":
+            labels: list[str] = []
+            if stupidity >= 0.7:
+                labels.append("Short-circuited thinking")
+            elif stupidity >= 0.45:
+                labels.append("Loose logic")
+            else:
+                labels.append("Still salvageable")
+
+            if conformity >= 0.7:
+                labels.append("High bandwagon risk")
+            else:
+                labels.append("Personal stance intact")
+
+            if polarization >= 0.75:
+                labels.append("Polarization rising")
+            else:
+                labels.append("Emotion contained")
+            return labels
+
+        labels = []
         if stupidity >= 0.7:
             labels.append("思考短路")
         elif stupidity >= 0.45:
