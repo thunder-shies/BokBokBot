@@ -18,7 +18,7 @@ export default function App() {
   const [metrics, setMetrics] = useState({ stupidity: 0.1, conformity: 0.1, polarization: 0.1 });
   const [labels, setLabels] = useState<string[]>([]);
   const [intensity, setIntensity] = useState(0.1);
-  const { broadcastCaption } = useProjectionWindow();
+  const { broadcastCaption, broadcastEvent } = useProjectionWindow();
 
   const handleSendMessage = async (text: string) => {
     setMessages(prev => [...prev, { role: 'user', text }]);
@@ -70,7 +70,7 @@ export default function App() {
               <Eye size={12} />
               <span>Visual_Input_Feed</span>
             </div>
-            <WebcamPreview />
+            <WebcamPreview broadcastEvent={broadcastEvent} />
           </section>
 
           <section className="flex-1 border border-white/10 bg-black/40 backdrop-blur-sm p-6 space-y-6">
@@ -89,6 +89,7 @@ export default function App() {
             onSendMessage={handleSendMessage} 
             isTyping={isTyping}
             broadcastCaption={broadcastCaption}
+            broadcastEvent={broadcastEvent}
           />
         </div>
       </main>
