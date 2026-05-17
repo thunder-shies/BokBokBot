@@ -482,24 +482,28 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ onSendMessage, mes
 
       utterance.rate = 2;
 
-      window.postMessage({
-        type: 'ROBOT_TTS_STARTED'
-      });
+      const notifyTtsEvent = (type: 'ROBOT_TTS_STARTED' | 'ROBOT_TTS_FINISHED') => {
+        const payload = { type };
+
+        window.postMessage(payload, '*');
+
+        if (broadcastEvent) {
+          broadcastEvent(payload);
+        }
+      };
+
+      notifyTtsEvent('ROBOT_TTS_STARTED');
 
       utterance.onend = () => {
         scheduleCcClear(2500);
 
-        window.postMessage({
-          type: 'ROBOT_TTS_FINISHED'
-        });
+        notifyTtsEvent('ROBOT_TTS_FINISHED');
       };
 
       utterance.onerror = () => {
         scheduleCcClear(2500);
 
-        window.postMessage({
-          type: 'ROBOT_TTS_FINISHED'
-        });
+        notifyTtsEvent('ROBOT_TTS_FINISHED');
       };
 
       window.speechSynthesis.speak(utterance);

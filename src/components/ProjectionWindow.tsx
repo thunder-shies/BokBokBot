@@ -99,7 +99,7 @@ export const ProjectionWindow: React.FC = () => {
               className="w-full flex flex-col items-center gap-4"
             >
               <div
-                className={`bg-black/80 backdrop-blur-md px-6 py-4 text-center text-xl md:text-2xl font-bold tracking-tight rounded-sm max-w-2xl border-x shadow-2xl ${
+                className={`bg-black/80 backdrop-blur-md px-6 py-4 text-center text-xl md:text-2xl font-bold tracking-tight rounded-sm max-w-5xl border-x shadow-2xl ${
                   currentCC.role === 'user'
                     ? 'border-white/40 text-white/90'
                     : 'border-white/5 text-white'
