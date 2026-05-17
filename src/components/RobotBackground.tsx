@@ -37,7 +37,7 @@ export const RobotBackground: React.FC = () => {
       v.pause();
 
       // Keep video muted to satisfy autoplay policies.
-      v.muted = true;
+      // v.muted = true;
       v.loop = loop;
 
       if (!v.src.includes(src.split('/').pop() || '')) {
