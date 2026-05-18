@@ -4,6 +4,9 @@
 
 > A satirical AI chat application that analyzes user input, generates contextual replies with behavioral metrics, and features real-time speech interaction in multiple languages with a futuristic robot interface.
 
+## Video
+[![Watch the video](src/assets/images/bokbokBot_idle.png)](https://www.youtube.com/embed/vSZg_2Pf2Zs)
+
 ## Overview
 
 駁駁Bot is a full-stack web application that combines a stylized React interface with a FastAPI backend to create an interactive AI chat experience. The app features:
